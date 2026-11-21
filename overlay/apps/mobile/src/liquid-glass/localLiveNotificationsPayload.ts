@@ -310,8 +310,10 @@ export function buildAndroidAlertForTransition(input: {
         sanitized.updatedAt,
       ]),
       alert_group: JSON.stringify([sanitized.environmentId, sanitized.threadId]),
-      alert_title: sanitized.threadTitle,
-      alert_body: `${sanitized.status}: ${sanitized.projectTitle}`,
+      alert_title: sanitized.projectTitle
+        ? `${sanitized.status} · ${sanitized.projectTitle}`
+        : sanitized.status,
+      alert_body: sanitized.threadTitle,
       alert_path: sanitized.deepLink,
     };
   }

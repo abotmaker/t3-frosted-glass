@@ -145,8 +145,8 @@ describe("localLiveNotificationsPayload", () => {
     expect(approvalDelivery.hasAlert).toBe(true);
     expect(approvalDelivery.isActive).toBe(true);
     expect(approvalDelivery.data).toMatchObject({
-      alert_title: "Fix live updates",
-      alert_body: "Approval: t3-android",
+      alert_title: "Approval · t3-android",
+      alert_body: "Fix live updates",
       alert_path: `/threads/${ENV_LOCAL}/${THREAD_A}`,
       activity_phase: "waiting_for_approval",
     });
@@ -178,8 +178,8 @@ describe("localLiveNotificationsPayload", () => {
       active: "false",
       activity_phase: "completed",
       activity_line_0: "Done\tFix live updates\tt3-android",
-      alert_title: "Fix live updates",
-      alert_body: "Done: t3-android",
+      alert_title: "Done · t3-android",
+      alert_body: "Fix live updates",
     });
   });
 
