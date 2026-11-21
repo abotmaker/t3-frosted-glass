@@ -65,6 +65,10 @@ class T3LiquidGlassSliderView(
   private val activeRect = RectF()
   private val rimRect = RectF()
   private val clipPath = Path()
+  private var cachedTrackTop = Float.NaN
+  private var cachedTrackBottom = Float.NaN
+  private var cachedTrackWidth = Float.NaN
+  private var cachedRimDark = true
 
   private var minVal = 0.0
   private var maxVal = 1.0
@@ -86,11 +90,13 @@ class T3LiquidGlassSliderView(
   }
 
   fun setMin(value: Double) {
+    if (minVal == value) return
     minVal = value
     invalidate()
   }
 
   fun setMax(value: Double) {
+    if (maxVal == value) return
     maxVal = value
     invalidate()
   }
@@ -100,7 +106,7 @@ class T3LiquidGlassSliderView(
   }
 
   fun setValue(value: Double) {
-    if (dragging) return
+    if (dragging || currentVal == value) return
     currentVal = value
     invalidate()
   }
@@ -122,13 +128,14 @@ class T3LiquidGlassSliderView(
   private fun updateRimShader() {
     if (trackRect.isEmpty) return
     val p = GlassTokens.palette(dark)
+    cachedRimDark = dark
     rimPaint.shader = LinearGradient(
       trackRect.left,
       trackRect.top,
       trackRect.right,
       trackRect.bottom,
       p.rimColors,
-      floatArrayOf(0f, 0.38f, 0.65f, 1f),
+      RIM_STOPS,
       Shader.TileMode.CLAMP,
     )
   }
@@ -176,15 +183,21 @@ class T3LiquidGlassSliderView(
     val radius = barH * 0.5f
     val top = (h - barH) * 0.5f
     val bottom = top + barH
-    trackRect.set(0f, top, w, bottom)
-    updateRimShader()
+    val geometryChanged = top != cachedTrackTop || bottom != cachedTrackBottom || w != cachedTrackWidth
+    if (geometryChanged || rimPaint.shader == null || cachedRimDark != dark) {
+      trackRect.set(0f, top, w, bottom)
+      cachedTrackTop = top
+      cachedTrackBottom = bottom
+      cachedTrackWidth = w
+      clipPath.rewind()
+      clipPath.addRoundRect(trackRect, radius, radius, Path.Direction.CW)
+      updateRimShader()
+    }
 
     val span = (maxVal - minVal).coerceAtLeast(1e-6)
     val fraction = ((currentVal - minVal) / span).toFloat().coerceIn(0f, 1f)
     val filledW = if (fraction <= 0f) 0f else max(barH, w * fraction)
 
-    clipPath.rewind()
-    clipPath.addRoundRect(trackRect, radius, radius, Path.Direction.CW)
     val save = canvas.save()
     try {
       canvas.clipPath(clipPath)
@@ -281,5 +294,6 @@ class T3LiquidGlassSliderView(
     // Spring.DampingRatioMediumBouncy at Spring.StiffnessMediumLow (BitChord ThinSlider).
     const val STIFFNESS = 400.0
     const val DAMPING = 20.0
+    val RIM_STOPS = floatArrayOf(0f, 0.38f, 0.65f, 1f)
   }
 }

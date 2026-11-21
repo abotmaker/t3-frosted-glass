@@ -398,8 +398,11 @@ export function installLocalLiveNotifications(): () => void {
     void pollRelayAndSync(true);
   });
 
+  // Subscribe to quietThreadShellsAtom rather than threadShellsAtom so 10-30Hz streaming
+  // token ticks do not trigger JS-thread notification scans; phase, approval, input, title,
+  // and completion transitions still fire immediately.
   const unsubThreadShells = appAtomRegistry.subscribe(
-    environmentThreadShells.threadShellsAtom,
+    environmentThreadShells.quietThreadShellsAtom,
     () => {
       scheduleLocalSync();
     },

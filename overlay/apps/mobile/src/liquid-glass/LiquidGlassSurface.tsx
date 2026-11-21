@@ -33,10 +33,27 @@ export interface LiquidGlassSurfaceProps extends Omit<ViewProps, "style"> {
   readonly children?: ReactNode;
 }
 
+const UNIFORM_RADIUS_STYLES: Readonly<Record<number, ViewStyle>> = {
+  0: { borderRadius: 0, overflow: "hidden" },
+  12: { borderRadius: 12, overflow: "hidden" },
+  14: { borderRadius: 14, overflow: "hidden" },
+  16: { borderRadius: 16, overflow: "hidden" },
+  18: { borderRadius: 18, overflow: "hidden" },
+  20: { borderRadius: 20, overflow: "hidden" },
+  24: { borderRadius: 24, overflow: "hidden" },
+  28: { borderRadius: 28, overflow: "hidden" },
+  999: { borderRadius: 999, overflow: "hidden" },
+};
+
 function resolveBorderRadius(style: StyleProp<ViewStyle>, explicit?: number): number {
   if (explicit !== undefined) return explicit;
-  const flat = StyleSheet.flatten(style);
-  if (typeof flat?.borderRadius === "number") return flat.borderRadius;
+  if (style && !Array.isArray(style) && typeof style === "object") {
+    const r = (style as ViewStyle).borderRadius;
+    if (typeof r === "number") return r;
+  } else if (style) {
+    const flat = StyleSheet.flatten(style);
+    if (typeof flat?.borderRadius === "number") return flat.borderRadius;
+  }
   return 18;
 }
 
@@ -70,10 +87,10 @@ export function LiquidGlassSurface({
           borderBottomRightRadius: resolvedBottomRadius,
           overflow: "hidden",
         }
-      : {
+      : (UNIFORM_RADIUS_STYLES[radius] ?? {
           borderRadius: radius,
           overflow: "hidden",
-        };
+        });
 
   if (Platform.OS !== "android" || !NativeLiquidGlassSurfaceView) {
     return (

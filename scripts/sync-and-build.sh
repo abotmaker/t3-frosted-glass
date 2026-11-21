@@ -318,6 +318,8 @@ if [[ "$DO_INSTALL" -eq 1 ]]; then
   if [[ -n "$DEVICE_SERIAL" ]]; then
     echo "==> Installing com.t3tools.t3code.glass side-by-side onto $DEVICE_SERIAL (ADB port $ADB_PORT)..."
     adb -P "$ADB_PORT" -s "$DEVICE_SERIAL" install -r "$APK_DST"
+    echo "==> Installing bundled ART Baseline Profile & pre-compiling speed-profile..."
+    adb -P "$ADB_PORT" -s "$DEVICE_SERIAL" shell "am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE com.t3tools.t3code.glass/androidx.profileinstaller.ProfileInstallReceiver >/dev/null 2>&1 && sleep 1 && cmd package compile -m speed-profile -f com.t3tools.t3code.glass" || true
     echo "==> Installed T3 Code Glass alongside com.t3tools.t3code!"
   else
     echo "WARN: No ADB device connected. Install manually with: adb install -r \"$APK_DST\""

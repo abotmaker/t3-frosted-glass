@@ -8,6 +8,7 @@
       "expo.modules.t3liquidglass.T3LiquidGlassDockModule",
       "expo.modules.t3liquidglass.T3LiquidGlassSegmentedModule",
       "expo.modules.t3liquidglass.T3LiquidGlassSliderModule",
+      "expo.modules.t3liquidglass.T3LiquidGlassFadeModule",
       "expo.modules.t3liquidglass.T3GlassUpdaterModule"
     ]
   }

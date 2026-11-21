@@ -74,6 +74,12 @@ export interface NativeSliderProps extends ViewProps {
   readonly onValueCommit?: (event: NativeSyntheticEvent<{ readonly value: number }>) => void;
 }
 
+export interface NativeFadeProps extends ViewProps {
+  readonly dark: boolean;
+  readonly direction: "top" | "bottom";
+  readonly solidStop?: number;
+}
+
 function tryRequireNativeView<P>(name: string): ComponentType<P> | null {
   if (Platform.OS !== "android") return null;
   try {
@@ -101,10 +107,22 @@ export const NativeLiquidGlassSegmentedView =
 export const NativeLiquidGlassSliderView =
   tryRequireNativeView<NativeSliderProps>("T3LiquidGlassSlider");
 
+export const NativeLiquidGlassFadeView =
+  tryRequireNativeView<NativeFadeProps>("T3LiquidGlassFade");
+
+const nativeColorCache = new Map<string, number | null>();
+
 export function toNativeColor(value: string | null | undefined): number | null {
   if (!value) return null;
+  const cached = nativeColorCache.get(value);
+  if (cached !== undefined) return cached;
   const processed = processColor(value);
-  return typeof processed === "number" ? processed : null;
+  const resolved = typeof processed === "number" ? processed : null;
+  if (nativeColorCache.size >= 256) {
+    nativeColorCache.clear();
+  }
+  nativeColorCache.set(value, resolved);
+  return resolved;
 }
 
 export function toNativeColorOrDefault(value: string | null | undefined, fallback: number): number {

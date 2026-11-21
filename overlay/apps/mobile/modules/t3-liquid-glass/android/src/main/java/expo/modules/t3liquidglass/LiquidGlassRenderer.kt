@@ -37,6 +37,11 @@ internal class LiquidGlassRenderer(private val view: View) {
   private var enabled = true
   private var failed = false
 
+  private var clipWidth = -1
+  private var clipHeight = -1
+  private var clipTop = -1f
+  private var clipBottom = -1f
+
   fun setEnabled(enabled: Boolean): Boolean {
     if (this.enabled == enabled) return false
     this.enabled = enabled
@@ -56,6 +61,7 @@ internal class LiquidGlassRenderer(private val view: View) {
     look: GlassLook,
     backdropAlpha: Float,
     accentColor: Int?,
+    cachedBackdrop: T3LiquidGlassBackdropView? = null,
   ): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !enabled || failed || !canvas.isHardwareAccelerated) {
       return false
@@ -64,14 +70,15 @@ internal class LiquidGlassRenderer(private val view: View) {
     val height = bottom - top
     if (width <= 0 || height <= 0) return false
 
-    val backdrop = findGlassBackdrop(view)
-    val menuSource = if (look == GlassLook.MENU) backdrop?.menuSourceFor(view) else null
+    val backdrop = cachedBackdrop ?: findGlassBackdrop(view) ?: return false
+    val menuSource = if (look == GlassLook.MENU) backdrop.menuSourceFor(view) else null
     // Composer suggestions share the menu material and sit beside the thread feed source.
-    val localContent = menuSource == null && look.samplesContent && backdrop?.canSampleContent(view) == true
+    val localContent = menuSource == null && look.samplesContent && backdrop.canSampleContent(view)
     val live = menuSource != null || localContent
     // Both dark (#000000) and light (#F2F4F7) use uniform clean canvases, so blurring without
     // live screen content behind the glass would leave a flat color unchanged.
     if (!live) return false
+
     view.getLocationInWindow(viewLocation)
     val windowX = viewLocation[0] + left
     val windowY = viewLocation[1] + top
@@ -86,21 +93,70 @@ internal class LiquidGlassRenderer(private val view: View) {
         effectDark = dark
       }
       val effect = hardware ?: BackdropEffect(density, blurRadiusDp, dark).also { hardware = it }
-      effect.record(width, height, rTop, rBottom, if (live) 1f else backdropAlpha) { recording ->
-        recording.drawColor(if (dark) Color.BLACK else GlassTokens.LIGHT_CANVAS)
-        menuSource?.drawBackdrop(recording, windowX, windowY)
-        if (localContent && backdrop != null) {
-          for (source in backdrop.sources) source.drawBackdrop(recording, windowX, windowY)
+
+      // Combine source display-list generations + overlap check so unchanged frames reuse
+      // the cached RenderNode without re-recording the screen hierarchy.
+      val padPx = effect.sourceOverlapPaddingPx
+      var generationHash = 17L
+      var overlappingSources = 0
+      if (menuSource != null && menuSource.hasRecordedContent()) {
+        val locHash = menuSource.refreshWindowLocation()
+        generationHash = generationHash * 31L + menuSource.contentGeneration
+        generationHash = generationHash * 31L + locHash
+        overlappingSources = 1
+      } else if (localContent) {
+        for (source in backdrop.sources) {
+          if (source.hasRecordedContent() &&
+            source.overlapsWindowRect(windowX, windowY, width, height, padPx)
+          ) {
+            generationHash = generationHash * 31L + source.contentGeneration
+            generationHash = generationHash * 31L +
+              ((source.windowLeft.toLong() shl 32) xor (source.windowTop.toLong() and 0xFFFFFFFFL))
+            overlappingSources += 1
+          }
         }
       }
-      bounds.set(0f, 0f, width.toFloat(), height.toFloat())
-      val save = canvas.save()
-      try {
-        canvas.translate(left.toFloat(), top.toFloat())
+      if (overlappingSources == 0) return false
+
+      val targetAlpha = if (live) 1f else backdropAlpha
+      effect.recordIfDirty(
+        w = width,
+        h = height,
+        top = rTop,
+        bottom = rBottom,
+        alpha = targetAlpha,
+        windowX = windowX,
+        windowY = windowY,
+        generationHash = generationHash,
+        sourceCount = overlappingSources,
+      ) { recording ->
+        recording.drawColor(if (dark) Color.BLACK else GlassTokens.LIGHT_CANVAS)
+        if (menuSource != null) {
+          menuSource.drawBackdrop(recording, windowX, windowY)
+        } else if (localContent) {
+          for (source in backdrop.sources) {
+            if (source.overlapsWindowRect(windowX, windowY, width, height, padPx)) {
+              source.drawBackdrop(recording, windowX, windowY)
+            }
+          }
+        }
+      }
+
+      if (clipWidth != width || clipHeight != height || clipTop != rTop || clipBottom != rBottom) {
+        clipWidth = width
+        clipHeight = height
+        clipTop = rTop
+        clipBottom = rBottom
+        bounds.set(0f, 0f, width.toFloat(), height.toFloat())
         radii.fill(rTop, 0, 4)
         radii.fill(rBottom, 4, 8)
         clip.rewind()
         clip.addRoundRect(bounds, radii, Path.Direction.CW)
+      }
+
+      val save = canvas.save()
+      try {
+        canvas.translate(left.toFloat(), top.toFloat())
         canvas.clipPath(clip)
         effect.draw(canvas)
       } finally {
@@ -129,6 +185,8 @@ internal class LiquidGlassRenderer(private val view: View) {
     private val lensHeight = GlassTokens.REFRACTION_HEIGHT_DP * density * scale
     private val lensAmount = GlassTokens.REFRACTION_AMOUNT_DP * density * scale
     private val padding = ceil(blur * 2f + lensAmount).toInt()
+    val sourceOverlapPaddingPx: Int = ceil(padding / scale).toInt()
+
     private val saturation = ColorMatrixColorFilter(
       ColorMatrix().apply {
         setSaturation(GlassTokens.SATURATION)
@@ -157,31 +215,87 @@ internal class LiquidGlassRenderer(private val view: View) {
         }
       },
     )
+    private val blurChainEffect: RenderEffect =
+      RenderEffect.createBlurEffect(
+        blur,
+        blur,
+        RenderEffect.createColorFilterEffect(saturation),
+        Shader.TileMode.CLAMP,
+      )
+    private val refractionShader: Any? =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Api33.createShader()
+      } else {
+        null
+      }
+
     private val node = RenderNode("T3 glass lens backdrop")
     private var width = -1
     private var height = -1
     private var topRadius = -1f
     private var bottomRadius = -1f
+    private var lastWindowX = Int.MIN_VALUE
+    private var lastWindowY = Int.MIN_VALUE
+    private var lastGenerationHash = Long.MIN_VALUE
+    private var lastSourceCount = -1
 
-    fun record(w: Int, h: Int, top: Float, bottom: Float, alpha: Float, drawContent: (Canvas) -> Unit) {
+    fun recordIfDirty(
+      w: Int,
+      h: Int,
+      top: Float,
+      bottom: Float,
+      alpha: Float,
+      windowX: Int,
+      windowY: Int,
+      generationHash: Long,
+      sourceCount: Int,
+      drawContent: (Canvas) -> Unit,
+    ) {
+      val clampedAlpha = alpha.coerceIn(0f, 1f)
+      val geometryChanged = w != width || h != height || top != topRadius || bottom != bottomRadius
+      if (!geometryChanged &&
+        node.hasDisplayList() &&
+        lastWindowX == windowX &&
+        lastWindowY == windowY &&
+        lastGenerationHash == generationHash &&
+        lastSourceCount == sourceCount
+      ) {
+        if (node.alpha != clampedAlpha) node.alpha = clampedAlpha
+        return
+      }
+
       val scaledWidth = w * scale
       val scaledHeight = h * scale
       val recordingWidth = ceil(scaledWidth).toInt() + padding * 2
       val recordingHeight = ceil(scaledHeight).toInt() + padding * 2
-      if (w != width || h != height || top != topRadius || bottom != bottomRadius) {
+      if (geometryChanged) {
         width = w
         height = h
         topRadius = top
         bottomRadius = bottom
         node.setPosition(0, 0, recordingWidth, recordingHeight)
-        val colorEffect = RenderEffect.createColorFilterEffect(saturation)
-        var effect = RenderEffect.createBlurEffect(blur, blur, colorEffect, Shader.TileMode.CLAMP)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-          effect = Api33.lens(effect, scaledWidth, scaledHeight, padding, top * scale, bottom * scale, lensHeight, lensAmount)
+        var effect = blurChainEffect
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && refractionShader != null) {
+          effect = Api33.lens(
+            refractionShader,
+            effect,
+            scaledWidth,
+            scaledHeight,
+            padding,
+            top * scale,
+            bottom * scale,
+            lensHeight,
+            lensAmount,
+          )
         }
         node.setRenderEffect(effect)
       }
-      node.alpha = alpha.coerceIn(0f, 1f)
+      node.alpha = clampedAlpha
+      lastWindowX = windowX
+      lastWindowY = windowY
+      lastGenerationHash = generationHash
+      lastSourceCount = sourceCount
+
       val recording = node.beginRecording(recordingWidth, recordingHeight)
       try {
         recording.translate(padding.toFloat(), padding.toFloat())
@@ -198,12 +312,19 @@ internal class LiquidGlassRenderer(private val view: View) {
       canvas.drawRenderNode(node)
     }
 
-    fun release() = node.discardDisplayList()
+    fun release() {
+      node.discardDisplayList()
+      lastGenerationHash = Long.MIN_VALUE
+      lastSourceCount = -1
+    }
   }
 
   @RequiresApi(Build.VERSION_CODES.TIRAMISU)
   private object Api33 {
+    fun createShader(): RuntimeShader = RuntimeShader(GlassShaders.REFRACTION)
+
     fun lens(
+      shaderObj: Any,
       input: RenderEffect,
       width: Float,
       height: Float,
@@ -213,7 +334,7 @@ internal class LiquidGlassRenderer(private val view: View) {
       lensHeight: Float,
       lensAmount: Float,
     ): RenderEffect {
-      val shader = RuntimeShader(GlassShaders.REFRACTION)
+      val shader = shaderObj as RuntimeShader
       val halfMin = min(width, height) * 0.5f
       val rTop = min(topRadius, halfMin)
       val rBot = min(bottomRadius, halfMin)

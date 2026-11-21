@@ -1,9 +1,10 @@
 import { useId } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { GLASS_BACKDROP_BASE_DARK, GLASS_BACKDROP_BASE_LIGHT } from "./liquidGlassTheme";
+import { NativeLiquidGlassFadeView } from "./nativeViews";
 
 /** Soft bottom edge gradient behind the floating composer pill, matching LiquidGlassHeader's top fade. */
 export function LiquidGlassBottomFade() {
@@ -11,6 +12,19 @@ export function LiquidGlassBottomFade() {
   const dark = themeAppearance === "dark";
   const gradientId = useId();
   const fadeColor = dark ? GLASS_BACKDROP_BASE_DARK : GLASS_BACKDROP_BASE_LIGHT;
+
+  if (Platform.OS === "android" && NativeLiquidGlassFadeView) {
+    return (
+      <NativeLiquidGlassFadeView
+        pointerEvents="none"
+        importantForAccessibility="no-hide-descendants"
+        dark={dark}
+        direction="bottom"
+        solidStop={0}
+        style={StyleSheet.absoluteFill}
+      />
+    );
+  }
 
   return (
     <View

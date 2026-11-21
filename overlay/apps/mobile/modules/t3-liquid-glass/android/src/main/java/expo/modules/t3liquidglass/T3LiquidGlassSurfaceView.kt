@@ -110,21 +110,27 @@ class T3LiquidGlassSurfaceView(
   }
 
   fun setUniformCornerRadiusDp(radiusDp: Float) {
-    uniformRadiusDp = radiusDp.coerceAtLeast(0f)
+    val next = radiusDp.coerceAtLeast(0f)
+    if (uniformRadiusDp == next) return
+    uniformRadiusDp = next
     syncBounds()
     invalidateOutline()
     invalidate()
   }
 
   fun setTopCornerRadiusDp(radiusDp: Float?) {
-    topRadiusDpOverride = radiusDp?.coerceAtLeast(0f)
+    val next = radiusDp?.coerceAtLeast(0f)
+    if (topRadiusDpOverride == next) return
+    topRadiusDpOverride = next
     syncBounds()
     invalidateOutline()
     invalidate()
   }
 
   fun setBottomCornerRadiusDp(radiusDp: Float?) {
-    bottomRadiusDpOverride = radiusDp?.coerceAtLeast(0f)
+    val next = radiusDp?.coerceAtLeast(0f)
+    if (bottomRadiusDpOverride == next) return
+    bottomRadiusDpOverride = next
     syncBounds()
     invalidateOutline()
     invalidate()

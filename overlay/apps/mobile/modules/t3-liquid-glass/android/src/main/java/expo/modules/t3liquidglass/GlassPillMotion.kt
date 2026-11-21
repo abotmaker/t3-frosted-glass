@@ -263,30 +263,45 @@ internal class GlassPillMotion(
     return (1.0 - abs(travelTarget - travelPos) / span).coerceIn(0.0, 1.0)
   }
 
-  private class SquashModel {
-    private val history = ArrayDeque<Pair<Double, Double>>()
+  internal class SquashModel {
+    private val xs = DoubleArray(CAPACITY)
+    private val ts = DoubleArray(CAPACITY)
+    private val vel = DoubleArray(CAPACITY)
+    private val velTime = DoubleArray(CAPACITY)
+    private var head = 0
+    private var size = 0
     var tracking = false
       private set
     private var value = 0.0
 
     fun start() {
-      history.clear()
+      head = 0
+      size = 0
       value = 0.0
       tracking = true
     }
 
     fun stop() {
       tracking = false
-      history.clear()
+      head = 0
+      size = 0
       value = 0.0
     }
 
     fun track(x: Double, now: Double, dt: Double): Double {
       if (!tracking) return value
-      history.addLast(x to now)
+      if (size == CAPACITY) {
+        head = (head + 1) % CAPACITY
+        size -= 1
+      }
+      val tail = (head + size) % CAPACITY
+      xs[tail] = x
+      ts[tail] = now
+      size += 1
       val cutoff = now - SAMPLE_WINDOW
-      while (history.isNotEmpty() && history.first().second < cutoff) {
-        history.removeFirst()
+      while (size > 0 && ts[head] < cutoff) {
+        head = (head + 1) % CAPACITY
+        size -= 1
       }
       val raw = (averageAcceleration() * SENSITIVITY).coerceIn(-MAX_DEFORMATION, MAX_DEFORMATION)
       val ease = (dt / RESPONSE_TIME).coerceIn(0.0, 1.0)
@@ -295,17 +310,18 @@ internal class GlassPillMotion(
     }
 
     private fun averageAcceleration(): Double {
-      if (history.size < 3) return 0.0
-      val samples = history.toList()
-      val vel = DoubleArray(samples.size)
-      val velTime = DoubleArray(samples.size)
+      if (size < 3) return 0.0
       var n = 0
-      for (i in 1 until samples.size) {
-        val dt = samples[i].second - samples[i - 1].second
-        if (dt <= 0.0) continue
-        vel[n] = (samples[i].first - samples[i - 1].first) / dt
-        velTime[n] = (samples[i].second + samples[i - 1].second) * 0.5
-        n++
+      var prevIdx = head
+      for (i in 1 until size) {
+        val curIdx = (head + i) % CAPACITY
+        val dt = ts[curIdx] - ts[prevIdx]
+        if (dt > 0.0) {
+          vel[n] = (xs[curIdx] - xs[prevIdx]) / dt
+          velTime[n] = (ts[curIdx] + ts[prevIdx]) * 0.5
+          n++
+        }
+        prevIdx = curIdx
       }
       if (n < 2) return 0.0
       var total = 0.0
@@ -320,6 +336,7 @@ internal class GlassPillMotion(
     }
 
     private companion object {
+      const val CAPACITY = 96
       const val SAMPLE_WINDOW = 0.3
       const val SENSITIVITY = 0.00007
       const val MAX_DEFORMATION = 0.12

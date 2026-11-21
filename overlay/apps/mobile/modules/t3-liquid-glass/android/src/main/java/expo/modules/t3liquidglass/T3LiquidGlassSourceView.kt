@@ -31,8 +31,24 @@ class T3LiquidGlassSourceView(context: Context, appContext: AppContext) : ExpoVi
   private var backdrop: T3LiquidGlassBackdropView? = null
   private val location = IntArray(2)
   private var captureEnabled = true
-
   private var menuBackdrop = false
+
+  @Volatile internal var contentGeneration: Long = 0L
+    private set
+  internal var windowLeft: Int = 0
+    private set
+  internal var windowTop: Int = 0
+    private set
+
+  internal fun hasRecordedContent(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && layer?.hasDisplayList() == true
+
+  internal fun refreshWindowLocation(): Long {
+    getLocationInWindow(location)
+    windowLeft = location[0]
+    windowTop = location[1]
+    return (windowLeft.toLong() shl 32) xor (windowTop.toLong() and 0xFFFFFFFFL)
+  }
 
   internal fun setMenuBackdrop(value: Boolean) {
     if (menuBackdrop == value) return
@@ -65,8 +81,9 @@ class T3LiquidGlassSourceView(context: Context, appContext: AppContext) : ExpoVi
 
   private fun unregister() {
     val backdrop = backdrop ?: return
+    val removed = (backdrop.menuSource === this) || backdrop.sources.remove(this)
     if (backdrop.menuSource === this) backdrop.menuSource = null
-    backdrop.sources.remove(this)
+    if (removed) backdrop.invalidateLiveSurfacesOutside(this)
   }
 
   override fun onAttachedToWindow() {
@@ -85,6 +102,7 @@ class T3LiquidGlassSourceView(context: Context, appContext: AppContext) : ExpoVi
   private fun releaseLayer() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) layer?.release()
     layer = null
+    contentGeneration = 0L
   }
 
   override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -92,18 +110,47 @@ class T3LiquidGlassSourceView(context: Context, appContext: AppContext) : ExpoVi
   }
 
   override fun dispatchDraw(canvas: Canvas) {
+    val currentBackdrop = backdrop
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !canvas.isHardwareAccelerated ||
-      !captureEnabled || backdrop == null || width <= 0 || height <= 0
+      !captureEnabled || currentBackdrop == null || width <= 0 || height <= 0 ||
+      !isShown || alpha <= 0f
     ) {
+      super.dispatchDraw(canvas)
+      return
+    }
+    // Skip offscreen RenderNode recording if no visible sibling glass surface needs this source.
+    if (!menuBackdrop && !currentBackdrop.hasActiveLiveSurfacesOutside(this)) {
       super.dispatchDraw(canvas)
       return
     }
     val content = layer ?: ContentLayer().also { layer = it }
     val hadDisplayList = content.hasDisplayList()
     content.record(canvas, width, height) { super.dispatchDraw(it) }
+    contentGeneration += 1L
     if (!hadDisplayList && content.hasDisplayList()) {
-      backdrop?.invalidateLiveSurfacesOutside(this)
+      currentBackdrop.invalidateLiveSurfacesOutside(this)
     }
+  }
+
+  internal fun overlapsWindowRect(
+    windowX: Int,
+    windowY: Int,
+    targetWidth: Int,
+    targetHeight: Int,
+    paddingPx: Int,
+  ): Boolean {
+    if (!isShown || alpha <= 0f || width <= 0 || height <= 0) return false
+    getLocationInWindow(location)
+    val left = location[0]
+    val top = location[1]
+    windowLeft = left
+    windowTop = top
+    val right = left + width
+    val bottom = top + height
+    return right > windowX - paddingPx &&
+      left < windowX + targetWidth + paddingPx &&
+      bottom > windowY - paddingPx &&
+      top < windowY + targetHeight + paddingPx
   }
 
   internal fun drawBackdrop(canvas: Canvas, windowX: Int, windowY: Int) {

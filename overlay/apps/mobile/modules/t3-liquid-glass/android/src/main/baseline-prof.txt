@@ -1,0 +1,23 @@
+# ART Baseline Profile for T3 Frosted Glass
+# Pre-compiles hot startup, Fabric UI rendering, Liquid Glass, Expo Modules,
+# navigation, scrolling, and networking paths to native ARM64 on install.
+HSPLexpo/modules/t3liquidglass/**;->**(**)**
+Lexpo/modules/t3liquidglass/**;
+HSPLexpo/modules/t3agentnotifications/**;->**(**)**
+Lexpo/modules/t3agentnotifications/**;
+HSPLcom/t3tools/t3code/**;->**(**)**
+Lcom/t3tools/t3code/**;
+HSPLcom/facebook/react/fabric/**;->**(**)**
+HSPLcom/facebook/react/uimanager/**;->**(**)**
+HSPLcom/facebook/react/runtime/**;->**(**)**
+HSPLcom/facebook/react/views/view/**;->**(**)**
+HSPLcom/facebook/react/views/text/**;->**(**)**
+HSPLcom/facebook/react/views/scroll/**;->**(**)**
+HSPLcom/facebook/react/bridge/**;->**(**)**
+HSPLcom/facebook/hermes/**;->**(**)**
+HSPLexpo/modules/kotlin/**;->**(**)**
+HSPLcom/swmansion/reanimated/**;->**(**)**
+HSPLcom/swmansion/rnscreens/**;->**(**)**
+HSPLcom/swmansion/gesturehandler/**;->**(**)**
+HSPLandroidx/recyclerview/widget/**;->**(**)**
+HSPLokhttp3/**;->**(**)**

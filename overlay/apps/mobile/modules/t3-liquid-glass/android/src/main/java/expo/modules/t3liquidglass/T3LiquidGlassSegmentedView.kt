@@ -64,9 +64,9 @@ class T3LiquidGlassSegmentedView(
   private val onSelectIndex by EventDispatcher()
 
   private val density = context.resources.displayMetrics.density
-  private val track = GlassSurfaceDrawer(this, GlassLook.TRACK)
-  private val flatPill = GlassSurfaceDrawer(this, GlassLook.PRIMARY)
-  private val lensPill = GlassSurfaceDrawer(this, GlassLook.CLEAR)
+  private val track = GlassSurfaceDrawer(this, GlassLook.TRACK, allowLiveBackdrop = false)
+  private val flatPill = GlassSurfaceDrawer(this, GlassLook.PRIMARY, allowLiveBackdrop = false)
+  private val lensPill = GlassSurfaceDrawer(this, GlassLook.CLEAR, allowLiveBackdrop = false)
   private val motion = GlassPillMotion({ invalidate() }, 0)
 
   private val pillInset = GlassTokens.SEGMENT_INSET_DP * density
@@ -95,6 +95,10 @@ class T3LiquidGlassSegmentedView(
 
   private var centers = FloatArray(0)
   private var cellWidths = FloatArray(0)
+  private var fittedRegularLabels = emptyArray<String>()
+  private var fittedBoldLabels = emptyArray<String>()
+  private var cachedBaselineOffset = 0f
+  private var cachedTextSizePx = 0f
   private var lens: GlassRowLens? = null
   private var lensFailed = false
 
@@ -146,16 +150,20 @@ class T3LiquidGlassSegmentedView(
   }
 
   fun setCompact(isCompact: Boolean) {
+    if (compact == isCompact) return
     compact = isCompact
+    rebuildLabelCache()
     invalidate()
   }
 
   fun setSelectedTextColor(color: Int) {
+    if (selectedTextColor == color) return
     selectedTextColor = color
     invalidate()
   }
 
   fun setMutedTextColor(color: Int) {
+    if (mutedTextColor == color) return
     mutedTextColor = color
     invalidate()
   }
@@ -179,11 +187,37 @@ class T3LiquidGlassSegmentedView(
     val cellW = trackRect.width() / n
     centers = FloatArray(n) { i -> trackRect.left + cellW * (i + 0.5f) }
     cellWidths = FloatArray(n) { cellW }
+    rebuildLabelCache()
     motion.setStepDp(stepPx() / density)
     hasLaidOut = true
     if (selectedIdx in labels.indices && motion.isFlat && !motion.isDragging) {
       motion.snapTo(selectedIdx)
     }
+  }
+
+  private fun rebuildLabelCache() {
+    val n = labels.size
+    if (n == 0 || cellWidths.size != n) {
+      fittedRegularLabels = emptyArray()
+      fittedBoldLabels = emptyArray()
+      return
+    }
+    cachedTextSizePx = (if (compact) 12.5f else 13.5f) * density
+    textPaint.textSize = cachedTextSizePx
+    textPaint.typeface = regularTypeface
+    val fm = textPaint.fontMetrics
+    cachedBaselineOffset = -(fm.ascent + fm.descent) * 0.5f
+    val regular = Array(n) { i ->
+      val availWidth = (cellWidths[i] - 12f * density).coerceAtLeast(8f)
+      TextUtils.ellipsize(labels[i], textPaint, availWidth, TextUtils.TruncateAt.END).toString()
+    }
+    textPaint.typeface = boldTypeface
+    val bold = Array(n) { i ->
+      val availWidth = (cellWidths[i] - 12f * density).coerceAtLeast(8f)
+      TextUtils.ellipsize(labels[i], textPaint, availWidth, TextUtils.TruncateAt.END).toString()
+    }
+    fittedRegularLabels = regular
+    fittedBoldLabels = bold
   }
 
   private fun stepPx(): Float {
@@ -288,17 +322,19 @@ class T3LiquidGlassSegmentedView(
   }
 
   private fun drawLabels(canvas: Canvas) {
-    textPaint.textSize = (if (compact) 12.5f else 13.5f) * density
-    val fm = textPaint.fontMetrics
-    val baselineOffset = -(fm.ascent + fm.descent) * 0.5f
+    if (fittedRegularLabels.size != labels.size || fittedBoldLabels.size != labels.size) {
+      rebuildLabelCache()
+    }
+    textPaint.textSize = cachedTextSizePx
+    val y = trackRect.centerY() + cachedBaselineOffset
     val activePos = motion.position
     for (i in labels.indices) {
       val proximity = (1f - abs(activePos - i)).coerceIn(0f, 1f)
+      val bold = proximity > 0.5f
       textPaint.color = GlassTokens.blendColors(mutedTextColor, selectedTextColor, proximity)
-      textPaint.typeface = if (proximity > 0.5f) boldTypeface else regularTypeface
-      val availWidth = (cellWidths[i] - 12f * density).coerceAtLeast(8f)
-      val fitted = TextUtils.ellipsize(labels[i], textPaint, availWidth, TextUtils.TruncateAt.END).toString()
-      canvas.drawText(fitted, centers[i], trackRect.centerY() + baselineOffset, textPaint)
+      textPaint.typeface = if (bold) boldTypeface else regularTypeface
+      val fitted = if (bold) fittedBoldLabels[i] else fittedRegularLabels[i]
+      canvas.drawText(fitted, centers[i], y, textPaint)
     }
   }
 

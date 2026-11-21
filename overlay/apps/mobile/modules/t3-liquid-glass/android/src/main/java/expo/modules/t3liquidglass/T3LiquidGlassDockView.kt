@@ -73,8 +73,8 @@ class T3LiquidGlassDockView(
 
   private val density = context.resources.displayMetrics.density
   private val track = GlassSurfaceDrawer(this, GlassLook.DOCK)
-  private val flatPill = GlassSurfaceDrawer(this, GlassLook.PRIMARY)
-  private val lensPill = GlassSurfaceDrawer(this, GlassLook.CLEAR)
+  private val flatPill = GlassSurfaceDrawer(this, GlassLook.PRIMARY, allowLiveBackdrop = false)
+  private val lensPill = GlassSurfaceDrawer(this, GlassLook.CLEAR, allowLiveBackdrop = false)
   private val motion = GlassPillMotion({ invalidate() }, 0)
 
   private val shadowInset = 8f * density
@@ -96,6 +96,7 @@ class T3LiquidGlassDockView(
   private val trackRect = RectF()
   private val pillRect = RectF()
   private val iconCache = mutableMapOf<String, Drawable?>()
+  private val iconTintCache = mutableMapOf<String, Int>()
 
   private var tabs: List<String> = listOf("threads", "pullRequests", "issues", "usage", "settings")
   private var selectedTab: String = "threads"
@@ -171,21 +172,26 @@ class T3LiquidGlassDockView(
   }
 
   fun setTextScale(scale: Float) {
-    textScale = scale.coerceIn(0.8f, 1.5f)
+    val clamped = scale.coerceIn(0.8f, 1.5f)
+    if (textScale == clamped) return
+    textScale = clamped
     invalidate()
   }
 
   fun setSelectedColor(color: Int) {
+    if (selectedColor == color) return
     selectedColor = color
     invalidate()
   }
 
   fun setUnselectedColor(color: Int) {
+    if (unselectedColor == color) return
     unselectedColor = color
     invalidate()
   }
 
   fun setAccentColor(color: Int?) {
+    if (themeAccentColor == color) return
     themeAccentColor = color
     updatePillAccent()
     invalidate()
@@ -352,6 +358,9 @@ class T3LiquidGlassDockView(
   private fun drawTabContent(canvas: Canvas) {
     val iconSize = (24f * textScale * density).roundToInt().coerceIn((18f * density).roundToInt(), (30f * density).roundToInt())
     val activePos = motion.position
+    if (!floating) {
+      labelPaint.textSize = 11.5f * textScale * density
+    }
     for (i in tabs.indices) {
       val tab = tabs[i]
       val cx = centers[i]
@@ -359,7 +368,10 @@ class T3LiquidGlassDockView(
       val proximity = (1f - abs(activePos - i)).coerceIn(0f, 1f)
       val tint = GlassTokens.blendColors(unselectedColor, selectedColor, proximity)
       val drawable = getIcon(tab) ?: continue
-      DrawableCompat.setTint(drawable, tint)
+      if (iconTintCache[tab] != tint) {
+        DrawableCompat.setTint(drawable, tint)
+        iconTintCache[tab] = tint
+      }
       if (floating) {
         val half = iconSize / 2
         drawable.setBounds(
@@ -380,7 +392,6 @@ class T3LiquidGlassDockView(
         )
         drawable.draw(canvas)
         labelPaint.color = tint
-        labelPaint.textSize = 11.5f * textScale * density
         canvas.drawText(tabTitle(tab), cx, iconTop + iconSize + 14f * density, labelPaint)
       }
     }

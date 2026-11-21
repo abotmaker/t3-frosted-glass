@@ -38,13 +38,14 @@ Useful flags:
 
 - `overlay/apps/mobile/modules/t3-liquid-glass/` — Expo native Android module (Kotlin + AGSL):
   - `GlassShaders.kt` (Apache-2.0 Kyant0/backdrop refraction & chromatic dispersion shader)
-  - `GlassBackdropDrawable.kt`, `T3LiquidGlassBackdropView.kt` (AMOLED dark / clean porcelain light backdrop host)
+  - `T3LiquidGlassBackdropView.kt`, `T3LiquidGlassFadeView.kt` (AMOLED dark / clean porcelain light backdrop host & GPU edge fades)
   - `T3LiquidGlassSourceView.kt` (captures workspace tabs, Settings content, and thread feeds for floating glass)
-  - `LiquidGlassRenderer.kt` (samples captured screen content with `RenderNode`, `RenderEffect` blur, and AGSL refraction)
-  - `GlassSurfaceDrawer.kt` (shared card/dock/composer/header/menu/button/bubble/input material stack)
-  - `GlassPillMotion.kt` (BitChord / `liquid_glass_easy` spring travel, lift, squash, and lens handoff)
+  - `LiquidGlassRenderer.kt` (dirty-cached `RenderNode` + `RenderEffect` blur + 3-tap AGSL spectral refraction)
+  - `GlassSurfaceDrawer.kt` (shared card/dock/composer/header/menu/button/bubble/input material stack with GPU RRect fast path)
+  - `GlassPillMotion.kt` (zero-allocation BitChord / `liquid_glass_easy` spring travel, lift, squash, and lens handoff)
   - `T3LiquidGlassDockView.kt`, `T3LiquidGlassSegmentedView.kt`, `T3LiquidGlassSliderView.kt`
   - `T3GlassUpdaterModule.kt` (trusted GitHub Releases HTTPS downloader, SHA-256 verifier, `FileProvider` package installer bridge)
+  - `baseline-prof.txt` (ART Baseline Profile for Fabric, Hermes, Liquid Glass, and navigation AOT compilation)
 - `overlay/apps/mobile/src/liquid-glass/` — React Native glass bindings, theme calibration, floating header/bottom fade, and in-app GitHub Releases updater (`glassUpdater.ts`, `LiquidGlassUpdateBanner.tsx`)
 - `overlay/apps/mobile/src/components/` — Android Frosted Glass component adapters
 - `overlay/apps/mobile/plugins/withAndroidLiquidGlass.cjs` — Expo config plugin for edge-to-edge system bars, frosted dialog drawables, `FileProvider` + `REQUEST_INSTALL_PACKAGES`, and persistent release signing

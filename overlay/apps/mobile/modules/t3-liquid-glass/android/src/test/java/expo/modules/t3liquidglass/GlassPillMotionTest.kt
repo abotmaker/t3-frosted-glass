@@ -49,4 +49,40 @@ class GlassPillMotionTest {
     assertEquals(GlassLook.CARD, GlassLook.fromWire("unknown"))
     assertFalse(GlassTokens.DARK.tintColor == GlassTokens.LIGHT.tintColor)
   }
+
+  @Test
+  fun squashRingBufferHandlesWrapAroundAndAcceleration() {
+    val squash = GlassPillMotion.SquashModel()
+    squash.start()
+    var now = 0.0
+    val dt = 1.0 / 120.0
+    var peak = 0.0
+    // Accelerate quadratically across 140 frames (> 96 ring buffer capacity).
+    for (i in 0 until 140) {
+      now += dt
+      val x = 0.5 * 8000.0 * now * now
+      val v = squash.track(x, now, dt)
+      if (kotlin.math.abs(v) > peak) peak = kotlin.math.abs(v)
+    }
+    assertTrue("Expected positive squash under acceleration, got $peak", peak > 0.01)
+    assertTrue("Expected squash clamped to <= 0.12, got $peak", peak <= 0.120001)
+
+    // Hold constant position for 2 seconds -> squash decays back toward 0.
+    val holdX = 0.5 * 8000.0 * now * now
+    var settled = peak
+    for (i in 0 until 240) {
+      now += dt
+      settled = squash.track(holdX, now, dt)
+    }
+    assertEquals(0.0, settled, 1e-3)
+  }
+
+  @Test
+  fun refractionShaderDefinesRequiredUniforms() {
+    val src = GlassShaders.REFRACTION
+    assertTrue(src.contains("uniform shader content;"))
+    assertTrue(src.contains("uniform float2 size;"))
+    assertTrue(src.contains("uniform float4 cornerRadii;"))
+    assertTrue(src.contains("uniform float chromaticAberration;"))
+  }
 }
