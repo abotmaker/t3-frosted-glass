@@ -1,0 +1,14 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": [
+      "expo.modules.t3liquidglass.T3LiquidGlassBackdropModule",
+      "expo.modules.t3liquidglass.T3LiquidGlassSourceModule",
+      "expo.modules.t3liquidglass.T3LiquidGlassSurfaceModule",
+      "expo.modules.t3liquidglass.T3LiquidGlassDockModule",
+      "expo.modules.t3liquidglass.T3LiquidGlassSegmentedModule",
+      "expo.modules.t3liquidglass.T3LiquidGlassSliderModule",
+      "expo.modules.t3liquidglass.T3GlassUpdaterModule"
+    ]
+  }
+}
