@@ -33,6 +33,7 @@ import { mobilePreferencesAtom } from "../state/preferences";
 import { environmentProjects } from "../state/projects";
 import { environmentShell } from "../state/shell";
 import { environmentThreadShells } from "../state/threads";
+import { setAppForegroundActive } from "./appForegroundState";
 import {
   getLocalLiveAuthState,
   type LocalLiveArmedWork,
@@ -132,6 +133,7 @@ export function installLocalLiveNotifications(): () => void {
 
   let disposed = false;
   let appState: AppStateStatus = (AppState.currentState ?? "active") as AppStateStatus;
+  setAppForegroundActive(appState === "active");
   let authState: LocalLiveAuthState = getLocalLiveAuthState();
   let nativeConfig: AndroidAgentNotificationsConfig | null =
     getLastAndroidAgentNotificationsConfig();
@@ -413,6 +415,7 @@ export function installLocalLiveNotifications(): () => void {
 
   const appStateSub = AppState.addEventListener("change", (nextState) => {
     appState = nextState;
+    setAppForegroundActive(nextState === "active");
     if (nextState === "active") {
       void refreshPermission().then(() => pollRelayAndSync(true));
     } else if (foregroundPollTimer !== null) {

@@ -204,6 +204,7 @@ if [[ "$DO_TESTS" -eq 1 ]]; then
     src/liquid-glass/glassUpdater.test.ts \
     src/liquid-glass/localLiveNotificationsPayload.test.ts \
     src/features/agent-awareness/remoteRegistration.test.ts \
+    src/features/threads/threadStreamHaptics.test.ts \
     app.config.test.ts \
     src/dependency-graph.test.ts \
     src/reactCompilerCoverage.test.ts \

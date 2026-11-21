@@ -3,6 +3,7 @@ import type { RelayAgentActivityAggregateState } from "@t3tools/contracts/relay"
 import type { AgentAwarenessState } from "@t3tools/shared/agentAwareness";
 import { describe, expect, it } from "vite-plus/test";
 
+import { isAppForegroundActive, setAppForegroundActive } from "./appForegroundState";
 import {
   buildLocalAgentActivityPayload,
   mergeAgentActivityAggregates,
@@ -253,5 +254,14 @@ describe("localLiveNotificationsPayload", () => {
       nowMs,
     });
     expect(merged).toBeNull();
+  });
+
+  it("tracks foreground state for background haptic suppression", () => {
+    setAppForegroundActive(true);
+    expect(isAppForegroundActive()).toBe(true);
+    setAppForegroundActive(false);
+    expect(isAppForegroundActive()).toBe(false);
+    setAppForegroundActive(true);
+    expect(isAppForegroundActive()).toBe(true);
   });
 });

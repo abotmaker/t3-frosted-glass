@@ -2441,6 +2441,28 @@ patchFile(
 
 const compactHeadlineMarker = "/* t3-liquid-glass: compact-live-headline */";
 patchFile(
+  "src/features/threads/threadStreamHaptics.ts",
+  "thread-stream-haptics-foreground-only",
+  (src) => {
+    let out = replaceOnce(
+      src,
+      'import * as Haptics from "expo-haptics";',
+      `/* t3-liquid-glass: foreground-only-stream-haptics */
+import * as Haptics from "expo-haptics";
+import { isAppForegroundActive } from "../../liquid-glass/appForegroundState";`,
+      "threadStreamHaptics foreground state import",
+    );
+    return replaceOnce(
+      out,
+      "        if (!tick) return;",
+      "        if (!tick || !isAppForegroundActive()) return;",
+      "threadStreamHaptics foreground guard",
+    );
+  },
+  "/* t3-liquid-glass: foreground-only-stream-haptics */",
+);
+
+patchFile(
   "modules/t3-agent-notifications/android/src/main/java/expo/modules/t3agentnotifications/AgentNotifications.kt",
   "agent-notifications-compact-headline",
   (src) => {
