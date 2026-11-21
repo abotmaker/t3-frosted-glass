@@ -1150,6 +1150,23 @@ patchFile("src/features/home/HomeScreen.tsx", "android-thread-row-layout", (src)
   );
 });
 
+patchFile("src/features/threads/ThreadFeed.tsx", "incremental-wide-markdown", (src) => {
+  let out = replaceOnce(src,
+    'import { hasWideMarkdownBlock } from "../../lib/wideMarkdownBlocks";',
+    'import { createWideMarkdownDetector } from "../../liquid-glass/wideMarkdownLayout";',
+    "streaming layout import");
+  out = replaceOnce(out, "memo(function ThreadFeed(props: ThreadFeedProps) {",
+    "memo(function ThreadFeed(props: ThreadFeedProps) {\n  const [isWideMarkdown] = useState(() => createWideMarkdownDetector(WIDE_MARKDOWN_BLOCK_OPTIONS));",
+    "per-feed layout checkpoint");
+  out = replaceOnce(out, "    /** The fold row of the turn",
+    "    readonly isWideMarkdown: ReturnType<typeof createWideMarkdownDetector>;\n    /** The fold row of the turn",
+    "feed row layout detector type");
+  out = replaceOnce(out, "{renderFeedEntry(info, {", "{renderFeedEntry(info, {\n            isWideMarkdown,",
+    "feed row layout detector");
+  return replaceOnce(out, "hasWideMarkdownBlock(renderedText, WIDE_MARKDOWN_BLOCK_OPTIONS)",
+    "props.isWideMarkdown(renderedText, message.streaming === true)", "streaming layout check");
+}, 'import { createWideMarkdownDetector }');
+
 patchFile("src/features/threads/ThreadFeed.tsx", "thread-feed-glass-user-bubble", (src) => {
   let out = replaceOnce(
     src,
@@ -2832,6 +2849,336 @@ patchFile("src/features/pull-requests/PullRequestDescription.tsx", "pr-descripti
     "PullRequestDescription Android fade hex",
   );
 });
+
+const fastIntlMarker = "/* t3-liquid-glass: fast-intl */";
+patchFile("src/i18n/intl-polyfills.ts", "fast-intl-polyfills", (src) => {
+  return `${src.trimEnd()}
+
+${fastIntlMarker}
+import { installFastIntlPolyfills } from "../liquid-glass/fastIntlPolyfills";
+installFastIntlPolyfills();
+`;
+}, fastIntlMarker);
+
+const markdownCacheMarker = "/* t3-liquid-glass: markdown-parse-cache */";
+patchFile("src/lib/markdownDocument.ts", "markdown-document-lru-cache", (src) => {
+  let out = replaceOnce(
+    src,
+    `const parser = unified().use(remarkParse).use(remarkGfm).use(remarkKeepWindowsProsePaths);`,
+    `${markdownCacheMarker}
+import { getCachedMarkdownAst } from "../liquid-glass/markdownParseCache";
+const rawParser = unified().use(remarkParse).use(remarkGfm).use(remarkKeepWindowsProsePaths);
+const parser = {
+  parse(markdown: string): Root {
+    return getCachedMarkdownAst(markdown, (input) => rawParser.parse(input));
+  },
+};
+export function parseMarkdownAst(markdown: string): Root {
+  return parser.parse(markdown);
+}`,
+    "markdownDocument cached parser",
+  );
+  return out;
+}, markdownCacheMarker);
+
+patchFile("src/native/EnrichedMarkdownText.tsx", "enriched-markdown-fast-cache", (src) => {
+  let out = replaceOnce(
+    src,
+    `  markdownWithTextDirection,
+} from "../lib/markdownDocument";`,
+    `  markdownWithTextDirection,
+  parseMarkdownAst,
+} from "../lib/markdownDocument";`,
+    "EnrichedMarkdownText parseMarkdownAst import",
+  );
+  out = replaceOnce(
+    out,
+    `import { useGT } from "gt-react-native";`,
+    `${markdownCacheMarker}
+import { useGT } from "gt-react-native";
+import {
+  EMPTY_FILE_HREFS,
+  getCachedEnrichedStaticLabels,
+  getCachedMarkdownLinkUrls,
+  getCachedNativeMarkdown,
+} from "../liquid-glass/markdownParseCache";`,
+    "EnrichedMarkdownText cache imports",
+  );
+  out = replaceOnce(
+    out,
+    `  // The library fills in {n}, {content} and {speech} itself when VoiceOver or TalkBack speaks.
+  const accessibilityLabels = useMemo<AccessibilityLabels>(
+    () => ({
+      list: {
+        bulletPoint: gt("Bullet point"),
+        nestedBulletPoint: gt("Nested bullet point"),
+        orderedItem: gt("List item {n}", { n: "{n}" }),
+        nestedOrderedItem: gt("Nested list item {n}", { n: "{n}" }),
+      },
+      blockquote: { quote: gt("Blockquote"), nestedQuote: gt("Nested blockquote") },
+      table: { row: gt("Row {n}: {content}", { n: "{n}", content: "{content}" }) },
+      math: { equation: gt("Math: {speech}", { speech: "{speech}" }) },
+      codeBlock: { wrap: gt("Wrap lines"), unwrap: gt("Disable line wrap") },
+      rotor: {
+        headings: gt("Headings", { $context: "screen reader rotor category" }),
+        links: gt("Links", { $context: "screen reader rotor category" }),
+        images: gt("Images", { $context: "screen reader rotor category" }),
+      },
+    }),
+    [gt],
+  );
+  // The library's built-in selection menu items default to English labels.
+  const selectionMenuConfig = useMemo<TextSelectionMenuConfig>(
+    () => ({
+      copy: { label: gt("Copy", { $context: "verb" }) },
+      copyAsMarkdown: { label: gt("Copy as Markdown") },
+      copyImageUrl: {
+        label: gt("Copy Image URL"),
+        pluralLabels: { other: gt("Copy {count} Image URLs", { count: "{count}" }) },
+      },
+    }),
+    [gt],
+  );`,
+    `  const { accessibilityLabels, selectionMenuConfig } = useMemo(
+    () => getCachedEnrichedStaticLabels(gt),
+    [gt],
+  );`,
+    "EnrichedMarkdownText shared static labels",
+  );
+  out = replaceOnce(
+    out,
+    `  const { markdown, fileHrefs } = useMemo(() => {
+    if (!fileEmbedLabel) {
+      return {
+        markdown: markdownWithTextDirection(
+          markdownForNativeRendering(props.markdown, ENRICHED_INLINE_FILE_LINK_REGEX),
+        ),
+        fileHrefs: new Set<string>(),
+      };
+    }
+    const content = markdownWithInlineFileLinks(
+      markdownForNativeParsing(props.markdown),
+      ENRICHED_INLINE_FILE_LINK_REGEX,
+    );
+    const files = markdownWithFileEmbeds(content, fileEmbedLabel);
+    return {
+      ...files,
+      markdown: markdownWithTextDirection(markdownWithTableBreaks(files.markdown)),
+    };
+  }, [props.markdown, fileEmbedLabel]);
+  const [parsedLinkUrls, setParsedLinkUrls] = useState<ReadonlyArray<string>>([]);
+  const onLinksChange = (links: MarkdownLinkOccurrence[]) => {
+    const urls = [...new Set(links.map((link) => link.url))];
+    setParsedLinkUrls((previous) =>
+      previous.length === urls.length && previous.every((url, index) => url === urls[index])
+        ? previous
+        : urls,
+    );
+  };`,
+    `  const { markdown, fileHrefs } = useMemo(() => {
+    if (!fileEmbedLabel || (!props.markdown.includes("![") && !/<img\\b/i.test(props.markdown))) {
+      return {
+        markdown: getCachedNativeMarkdown(props.markdown, (input) =>
+          markdownWithTextDirection(
+            markdownForNativeRendering(input, ENRICHED_INLINE_FILE_LINK_REGEX),
+          ),
+        ),
+        fileHrefs: EMPTY_FILE_HREFS,
+      };
+    }
+    const content = markdownWithInlineFileLinks(
+      markdownForNativeParsing(props.markdown),
+      ENRICHED_INLINE_FILE_LINK_REGEX,
+    );
+    const files = markdownWithFileEmbeds(content, fileEmbedLabel);
+    return {
+      ...files,
+      markdown: markdownWithTextDirection(markdownWithTableBreaks(files.markdown)),
+    };
+  }, [props.markdown, fileEmbedLabel]);
+  const initialLinkUrls = useMemo(
+    () => getCachedMarkdownLinkUrls(markdown, parseMarkdownAst),
+    [markdown],
+  );
+  const [overrideLinks, setOverrideLinks] = useState<{
+    readonly markdown: string;
+    readonly urls: ReadonlyArray<string>;
+  } | null>(null);
+  const parsedLinkUrls =
+    overrideLinks !== null && overrideLinks.markdown === markdown
+      ? overrideLinks.urls
+      : initialLinkUrls;
+  const onLinksChange = (links: MarkdownLinkOccurrence[]) => {
+    const urls = [...new Set(links.map((link) => link.url))];
+    if (
+      parsedLinkUrls.length === urls.length &&
+      parsedLinkUrls.every((url, index) => url === urls[index])
+    ) {
+      return;
+    }
+    setOverrideLinks({ markdown, urls });
+  };`,
+    "EnrichedMarkdownText cached single-pass markdown transform and render-1 link seeding",
+  );
+  return out;
+}, markdownCacheMarker);
+
+const mountFastPathMarker = "/* t3-liquid-glass: fast-thread-mount */";
+patchFile("src/features/threads/ThreadFeed.tsx", "thread-feed-compact-viewport-seed", (src) => {
+  let out = replaceOnce(
+    src,
+    `let lastSplitViewport: { windowWidth: number; width: number; height: number } | null = null;`,
+    `${mountFastPathMarker}
+let lastSplitViewport: { windowWidth: number; width: number; height: number } | null = null;
+let lastCompactViewport: { windowWidth: number; windowHeight: number; height: number } | null = null;`,
+    "ThreadFeed lastCompactViewport",
+  );
+  out = replaceOnce(
+    out,
+    `  const { width: windowWidth, fontScale } = useWindowDimensions();`,
+    `  const { width: windowWidth, height: windowHeight, fontScale } = useWindowDimensions();`,
+    "ThreadFeed windowHeight",
+  );
+  out = replaceOnce(
+    out,
+    `  const [viewportHeight, setViewportHeight] = useState(() => initialSplitViewport?.height ?? 0);`,
+    `  const [viewportHeight, setViewportHeight] = useState(() =>
+    splitLayout
+      ? (initialSplitViewport?.height ?? 0)
+      : lastCompactViewport?.windowWidth === windowWidth &&
+          lastCompactViewport?.windowHeight === windowHeight
+        ? lastCompactViewport.height
+        : Math.round(windowHeight),
+  );`,
+    "ThreadFeed seed compact viewportHeight",
+  );
+  return replaceOnce(
+    out,
+    `    if (splitLayout) lastSplitViewport = { windowWidth, width: nextWidth, height: nextHeight };`,
+    `    if (splitLayout) lastSplitViewport = { windowWidth, width: nextWidth, height: nextHeight };
+    else if (nextHeight > 0) lastCompactViewport = { windowWidth, windowHeight, height: nextHeight };`,
+    "ThreadFeed record lastCompactViewport",
+  );
+}, mountFastPathMarker);
+
+patchFile("src/features/threads/ThreadDetailScreen.tsx", "thread-detail-skip-mount-rerenders", (src) => {
+  let out = replaceOnce(
+    src,
+    `export function ThreadDetailScreen(props: ThreadDetailScreenProps) {`,
+    `${mountFastPathMarker}
+let lastThreadScreenLayout: {
+  windowWidth: number;
+  windowHeight: number;
+  width: number;
+  height: number;
+} | null = null;
+let lastThreadComposerHeight: number | null = null;
+
+export function ThreadDetailScreen(props: ThreadDetailScreenProps) {`,
+    "ThreadDetailScreen cached layout dimensions",
+  );
+  out = replaceOnce(
+    out,
+    `  const windowHeight = useWindowDimensions().height;`,
+    `  const { width: windowWidth, height: windowHeight } = useWindowDimensions();`,
+    "ThreadDetailScreen windowWidth+windowHeight",
+  );
+  out = replaceOnce(
+    out,
+    `  const [composerHeight, setComposerHeight] = useState<number | null>(null);
+  // The composer animates its height and reports a layout every frame. The feed follows those
+  // frames on the UI thread through onComposerLayout; this is only an estimate, so committing
+  // each frame would re-render the whole screen for the length of the animation.
+  const composerHeightSettle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleComposerHeightChange = (height: number) => {
+    setComposerHeight((current) => current ?? height);
+    if (composerHeightSettle.current !== null) clearTimeout(composerHeightSettle.current);
+    composerHeightSettle.current = setTimeout(() => {
+      composerHeightSettle.current = null;
+      setComposerHeight(height);
+    }, COMPOSER_HEIGHT_SETTLE_MS);
+  };`,
+    `  const [composerHeight, setComposerHeight] = useState<number | null>(() => lastThreadComposerHeight);
+  // The composer animates its height and reports a layout every frame. The feed follows those
+  // frames on the UI thread through onComposerLayout; this is only an estimate, so committing
+  // each frame would re-render the whole screen for the length of the animation.
+  const composerHeightSettle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleComposerHeightChange = (height: number) => {
+    if (height > 0) lastThreadComposerHeight = height;
+    setComposerHeight((current) =>
+      current !== null && Math.abs(current - height) <= 1 ? current : (current ?? height),
+    );
+    if (composerHeightSettle.current !== null) clearTimeout(composerHeightSettle.current);
+    composerHeightSettle.current = setTimeout(() => {
+      composerHeightSettle.current = null;
+      setComposerHeight((current) =>
+        current !== null && Math.abs(current - height) <= 1 ? current : height,
+      );
+    }, COMPOSER_HEIGHT_SETTLE_MS);
+  };`,
+    "ThreadDetailScreen seed composerHeight",
+  );
+  out = replaceOnce(
+    out,
+    `  const [lifecycleNow, setLifecycleNow] = useState(() => new Date().toISOString());
+  useFocusEffect(
+    useCallback(() => {
+      setLifecycleNow(new Date().toISOString());
+      const timer = setInterval(() => setLifecycleNow(new Date().toISOString()), 60_000);
+      return () => clearInterval(timer);
+    }, []),
+  );`,
+    `  const [lifecycleNow, setLifecycleNow] = useState(() => new Date().toISOString());
+  useFocusEffect(
+    useCallback(() => {
+      setLifecycleNow((current) =>
+        Date.now() - Date.parse(current) < 10_000 ? current : new Date().toISOString(),
+      );
+      const timer = setInterval(() => setLifecycleNow(new Date().toISOString()), 60_000);
+      return () => clearInterval(timer);
+    }, []),
+  );`,
+    "ThreadDetailScreen skip redundant focus lifecycleNow setState",
+  );
+  return replaceOnce(
+    out,
+    `  const [screenHeight, setScreenHeight] = useState<number | null>(null);
+  const [screenWidth, setScreenWidth] = useState<number | null>(null);
+  const handleScreenLayout = (event: LayoutChangeEvent) => {
+    setScreenHeight(event.nativeEvent.layout.height);
+    const width = Math.round(event.nativeEvent.layout.width);
+    setScreenWidth((current) =>
+      current !== null && Math.abs(current - width) <= 1 ? current : width,
+    );
+  };`,
+    `  const initialScreenLayout =
+    lastThreadScreenLayout &&
+    lastThreadScreenLayout.windowWidth === windowWidth &&
+    lastThreadScreenLayout.windowHeight === windowHeight
+      ? lastThreadScreenLayout
+      : null;
+  const [screenHeight, setScreenHeight] = useState<number | null>(
+    () => initialScreenLayout?.height ?? null,
+  );
+  const [screenWidth, setScreenWidth] = useState<number | null>(
+    () => initialScreenLayout?.width ?? null,
+  );
+  const handleScreenLayout = (event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    const width = Math.round(event.nativeEvent.layout.width);
+    if (height > 0 && width > 0) {
+      lastThreadScreenLayout = { windowWidth, windowHeight, width, height };
+    }
+    setScreenHeight((current) =>
+      current !== null && Math.abs(current - height) <= 1 ? current : height,
+    );
+    setScreenWidth((current) =>
+      current !== null && Math.abs(current - width) <= 1 ? current : width,
+    );
+  };`,
+    "ThreadDetailScreen seed screenHeight/screenWidth",
+  );
+}, mountFastPathMarker);
 
 for (const [file, mock] of [
   ["components/ui/AppBar.android.test.tsx", 'vi.mock("../../liquid-glass/LiquidGlassHeader", () => ({ GLASS_HEADER_CONTENT_PADDING: 14, LiquidGlassHeader: () => null }));'],

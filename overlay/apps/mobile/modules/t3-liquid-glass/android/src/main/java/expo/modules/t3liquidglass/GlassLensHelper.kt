@@ -26,6 +26,11 @@ internal class GlassRowLens(namePrefix: String) {
   private val clip = Path()
   private val bounds = RectF()
 
+  private var effectWidth = -1
+  private var effectHeight = -1
+  private var effectRefractionHeight = Float.NaN
+  private var effectAmount = Float.NaN
+
   fun beginRow(width: Int, height: Int): RecordingCanvas {
     rowNode.setPosition(0, 0, width, height)
     return rowNode.beginRecording(width, height)
@@ -43,15 +48,28 @@ internal class GlassRowLens(namePrefix: String) {
     val w = max(1, ceil(pill.width().toDouble()).toInt())
     val h = max(1, ceil(pill.height().toDouble()).toInt())
     val halfMin = min(w, h) * 0.5f
-    shader.setFloatUniform("size", w.toFloat(), h.toFloat())
-    shader.setFloatUniform("offset", 0f, 0f)
-    shader.setFloatUniform("cornerRadii", halfMin, halfMin, halfMin, halfMin)
-    shader.setFloatUniform("refractionHeight", min(height, halfMin).coerceAtLeast(1f))
-    shader.setFloatUniform("refractionAmount", -amount)
-    shader.setFloatUniform("depthEffect", 0f)
-    shader.setFloatUniform("chromaticAberration", 1f)
-    lensNode.setPosition(0, 0, w, h)
-    lensNode.setRenderEffect(RenderEffect.createRuntimeShaderEffect(shader, "content"))
+    val refractionHeight = min(height, halfMin).coerceAtLeast(1f)
+    val sizeChanged = effectWidth != w || effectHeight != h
+    if (sizeChanged) {
+      lensNode.setPosition(0, 0, w, h)
+      bounds.set(0f, 0f, w.toFloat(), h.toFloat())
+      clip.rewind()
+      clip.addRoundRect(bounds, halfMin, halfMin, Path.Direction.CW)
+    }
+    if (sizeChanged || effectRefractionHeight != refractionHeight || effectAmount != amount) {
+      shader.setFloatUniform("size", w.toFloat(), h.toFloat())
+      shader.setFloatUniform("offset", 0f, 0f)
+      shader.setFloatUniform("cornerRadii", halfMin, halfMin, halfMin, halfMin)
+      shader.setFloatUniform("refractionHeight", refractionHeight)
+      shader.setFloatUniform("refractionAmount", -amount)
+      shader.setFloatUniform("depthEffect", 0f)
+      shader.setFloatUniform("chromaticAberration", 1f)
+      lensNode.setRenderEffect(RenderEffect.createRuntimeShaderEffect(shader, "content"))
+      effectWidth = w
+      effectHeight = h
+      effectRefractionHeight = refractionHeight
+      effectAmount = amount
+    }
     val recording = lensNode.beginRecording(w, h)
     try {
       recording.translate(-pill.left, -pill.top)
@@ -62,9 +80,6 @@ internal class GlassRowLens(namePrefix: String) {
     val save = canvas.save()
     try {
       canvas.translate(pill.left, pill.top)
-      bounds.set(0f, 0f, w.toFloat(), h.toFloat())
-      clip.rewind()
-      clip.addRoundRect(bounds, halfMin, halfMin, Path.Direction.CW)
       canvas.clipPath(clip)
       canvas.drawRenderNode(lensNode)
     } finally {

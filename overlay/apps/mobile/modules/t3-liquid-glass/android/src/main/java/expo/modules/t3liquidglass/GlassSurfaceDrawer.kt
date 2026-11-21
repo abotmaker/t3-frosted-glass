@@ -285,6 +285,23 @@ internal class GlassSurfaceDrawer(
     }
   }
 
+  /** A pill's material follows the pill, so translating it can reuse its local gradients. */
+  fun drawPill(canvas: Canvas, rect: RectF, alpha: Float = 1f) {
+    val opacity = (alpha.coerceIn(0f, 1f) * 255f).roundToInt()
+    if (opacity == 0) return
+    val w = rect.width()
+    val h = rect.height()
+    setBounds(0f, 0f, w, h, h * 0.5f)
+    val save = canvas.save()
+    try {
+      canvas.translate(rect.left, rect.top)
+      if (opacity < 255) canvas.saveLayerAlpha(-2f, -2f, w + 2f, h + 2f, opacity)
+      draw(canvas, pressed = false, withBackdrop = false)
+    } finally {
+      canvas.restoreToCount(save)
+    }
+  }
+
   fun draw(canvas: Canvas, pressed: Boolean, withBackdrop: Boolean = true) {
     scrollInvalidationPending = false
     if (area.width() <= 0f || area.height() <= 0f) return

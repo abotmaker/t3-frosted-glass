@@ -46,7 +46,7 @@ Useful flags:
   - `T3LiquidGlassDockView.kt`, `T3LiquidGlassSegmentedView.kt`, `T3LiquidGlassSliderView.kt`
   - `T3GlassUpdaterModule.kt` (trusted GitHub Releases HTTPS downloader, SHA-256 verifier, `FileProvider` package installer bridge)
   - `baseline-prof.txt` (ART Baseline Profile for Fabric, Hermes, Liquid Glass, and navigation AOT compilation)
-- `overlay/apps/mobile/src/liquid-glass/` — React Native glass bindings, theme calibration, floating header/bottom fade, and in-app GitHub Releases updater (`glassUpdater.ts`, `LiquidGlassUpdateBanner.tsx`)
+- `overlay/apps/mobile/src/liquid-glass/` — React Native glass bindings, theme calibration, floating header/bottom fade, in-app GitHub Releases updater (`glassUpdater.ts`, `LiquidGlassUpdateBanner.tsx`), and Android thread-open performance modules (`fastIntlPolyfills.ts`, `markdownParseCache.ts`, `wideMarkdownLayout.ts`, `localLiveNotifications.ts`)
 - `overlay/apps/mobile/src/components/` — Android Frosted Glass component adapters
 - `overlay/apps/mobile/plugins/withAndroidLiquidGlass.cjs` — Expo config plugin for edge-to-edge system bars, frosted dialog drawables, `FileProvider` + `REQUEST_INSTALL_PACKAGES`, and persistent release signing
 - `scripts/apply-liquid-glass.mjs` — idempotent, self-verifying overlay & hook applicator

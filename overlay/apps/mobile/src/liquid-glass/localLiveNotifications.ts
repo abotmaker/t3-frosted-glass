@@ -1,7 +1,7 @@
 import { ManagedRelay } from "@t3tools/client-runtime/relay";
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import { settleAsyncResult } from "@t3tools/client-runtime/state/runtime";
-import type { ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationProjectShell, OrchestrationV2ThreadShell, ProjectId, ThreadId } from "@t3tools/contracts";
 import type { RelayAgentActivityAggregateState } from "@t3tools/contracts/relay";
 import {
   type AgentAwarenessState,
@@ -59,13 +59,59 @@ interface OptimisticArmedEntry {
   readonly expiresAt: number;
 }
 
-function readLocalThreadAwarenessStates(): {
+interface LocalAwarenessSnapshot {
+  readonly threads: ReadonlyArray<OrchestrationV2ThreadShell>;
+  readonly projectIndex: ReadonlyMap<ProjectId, OrchestrationProjectShell>;
+  readonly states: ReadonlyArray<AgentAwarenessState>;
+}
+
+function projectLocalAwareness(
+  environmentId: EnvironmentId,
+  threads: LocalAwarenessSnapshot["threads"],
+  projectIndex: LocalAwarenessSnapshot["projectIndex"],
+) {
+  const states: AgentAwarenessState[] = [];
+  const subagentRequestsByParent = new Map<string, SubagentRequestAwareness>();
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || thread.deletedAt !== null) continue;
+    const parentId = thread.lineage.parentThreadId;
+    if (!parentId || !subagentAwaitsUser(thread)) continue;
+    const req = thread.pendingRuntimeRequest;
+    if (!req) continue;
+    const candidate: SubagentRequestAwareness = {
+      requestId: req.id,
+      updatedAt: thread.updatedAt,
+      waitsForInput: req.kind === "user_input",
+    };
+    const existing = subagentRequestsByParent.get(parentId);
+    if (!existing || DateTime.isGreaterThan(candidate.updatedAt, existing.updatedAt)) {
+      subagentRequestsByParent.set(parentId, candidate);
+    }
+  }
+
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || thread.deletedAt !== null) continue;
+    const project = projectIndex.get(thread.projectId);
+    const awareness = projectThreadAwarenessV2({
+      environmentId,
+      project: { title: project?.title ?? "Project" },
+      thread,
+      pendingSubagentRequest: subagentRequestsByParent.get(thread.id) ?? null,
+    });
+    if (awareness !== null) {
+      states.push(awareness);
+    }
+  }
+  return states;
+}
+
+function readLocalThreadAwarenessStates(cache: Map<EnvironmentId, LocalAwarenessSnapshot>): {
   readonly states: ReadonlyArray<AgentAwarenessState>;
   readonly liveEnvironmentIds: ReadonlySet<string>;
 } {
   const catalog = appAtomRegistry.get(environmentCatalog.catalogValueAtom);
   const envIds = enabledEnvironmentIds(catalog);
-  const liveEnvironmentIds = new Set<string>();
+  const liveEnvironmentIds = new Set<EnvironmentId>();
   const states: AgentAwarenessState[] = [];
 
   for (const environmentId of envIds) {
@@ -82,39 +128,17 @@ function readLocalThreadAwarenessStates(): {
       environmentProjects.environmentProjectIndexAtom(environmentId),
     );
 
-    const subagentRequestsByParent = new Map<string, SubagentRequestAwareness>();
-    for (const thread of threads) {
-      if (thread.archivedAt !== null || thread.deletedAt !== null) continue;
-      const parentId = thread.lineage.parentThreadId;
-      if (!parentId || !subagentAwaitsUser(thread)) continue;
-      const req = thread.pendingRuntimeRequest;
-      if (!req) continue;
-      const candidate: SubagentRequestAwareness = {
-        requestId: req.id,
-        updatedAt: thread.updatedAt,
-        waitsForInput: req.kind === "user_input",
-      };
-      const existing = subagentRequestsByParent.get(parentId);
-      if (!existing || DateTime.isGreaterThan(candidate.updatedAt, existing.updatedAt)) {
-        subagentRequestsByParent.set(parentId, candidate);
-      }
+    let snapshot = cache.get(environmentId);
+    if (!snapshot || snapshot.threads !== threads || snapshot.projectIndex !== projectIndex) {
+      snapshot = { threads, projectIndex, states: projectLocalAwareness(environmentId, threads, projectIndex) };
+      cache.set(environmentId, snapshot);
     }
-
-    for (const thread of threads) {
-      if (thread.archivedAt !== null || thread.deletedAt !== null) continue;
-      const project = projectIndex.get(thread.projectId);
-      const awareness = projectThreadAwarenessV2({
-        environmentId,
-        project: { title: project?.title ?? "Project" },
-        thread,
-        pendingSubagentRequest: subagentRequestsByParent.get(thread.id) ?? null,
-      });
-      if (awareness !== null) {
-        states.push(awareness);
-      }
-    }
+    for (const state of snapshot.states) states.push(state);
   }
 
+  for (const id of cache.keys()) {
+    if (!liveEnvironmentIds.has(id)) cache.delete(id);
+  }
   return { states, liveEnvironmentIds };
 }
 
@@ -131,6 +155,7 @@ export function installLocalLiveNotifications(): () => void {
     return () => {};
   }
 
+  const awarenessCache = new Map<EnvironmentId, LocalAwarenessSnapshot>();
   let disposed = false;
   let appState: AppStateStatus = (AppState.currentState ?? "active") as AppStateStatus;
   setAppForegroundActive(appState === "active");
@@ -164,6 +189,7 @@ export function installLocalLiveNotifications(): () => void {
   };
 
   const resetDeliveryState = (stopService: boolean) => {
+    awarenessCache.clear();
     latestRelayAggregate = null;
     previousAggregate = null;
     hasBaseline = false;
@@ -221,7 +247,7 @@ export function installLocalLiveNotifications(): () => void {
 
     const nowMs = Date.now();
     const ongoingEnabled = readLiveActivitiesPreferenceEnabled();
-    const { states: localStates, liveEnvironmentIds } = readLocalThreadAwarenessStates();
+    const { states: localStates, liveEnvironmentIds } = readLocalThreadAwarenessStates(awarenessCache);
 
     if (armedWork !== null && (nowMs >= armedWork.expiresAt || localStates.some((s) => s.phase !== "completed" && s.phase !== "failed"))) {
       armedWork = null;
@@ -272,7 +298,7 @@ export function installLocalLiveNotifications(): () => void {
     lastDeliveredActive = delivery.isActive;
     receiveLocalAndroidAgentActivity(delivery.data);
 
-    if (appState === "active") {
+    if (activeChanged && appState === "active") {
       scheduleNextForegroundPoll();
     }
   };
@@ -393,9 +419,10 @@ export function installLocalLiveNotifications(): () => void {
   const unsubArmed = subscribeLocalLiveWorkArmed(handleArmedWork);
 
   const unsubNativeTick = addLocalAndroidLiveTickListener(() => {
-    // Fired every 5s by T3LiveUpdatesForegroundService while an agent is active,
-    // keeping updates alive even when the screen is locked or app is backgrounded.
-    void pollRelayAndSync(true);
+    // The foreground timer owns authenticated polling while visible. Direct connections
+    // still need local ticks for expiring activity even without a configured relay.
+    if (appState !== "active") void pollRelayAndSync(false);
+    else if (!authState.tokenProvider || !hasRelayUrl()) syncNow();
   });
 
   // Subscribe to quietThreadShellsAtom rather than threadShellsAtom so 10-30Hz streaming

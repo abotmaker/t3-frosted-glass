@@ -200,6 +200,14 @@ if [[ "$DO_TESTS" -eq 1 ]]; then
   (cd "$MOBILE_DIR" && "${PNPM_CMD[@]}" run typecheck)
   echo "==> Running Liquid Glass + critical mobile unit tests..."
   (cd "$MOBILE_DIR" && "${PNPM_CMD[@]}" exec vp test run \
+    src/liquid-glass/localLiveNotifications.test.ts \
+    src/liquid-glass/wideMarkdownLayout.test.ts \
+    src/liquid-glass/fastIntlPolyfills.test.ts \
+    src/liquid-glass/markdownParseCache.test.ts \
+    src/lib/wideMarkdownBlocks.test.ts \
+    src/lib/markdownHtml.test.ts \
+    src/lib/markdownInlineFileLinks.test.ts \
+    src/lib/markdownTableBreaks.test.ts \
     src/liquid-glass/liquidGlass.test.ts \
     src/liquid-glass/glassUpdater.test.ts \
     src/liquid-glass/localLiveNotificationsPayload.test.ts \

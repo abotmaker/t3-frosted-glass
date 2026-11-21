@@ -282,7 +282,7 @@ class T3LiquidGlassSegmentedView(
         return
       }
       val rim = material * GlassPillMotion.rimAlpha(motion.glassPresence)
-      if (rim > 0f) drawPillAtAlpha(canvas, lensPill, rim, withBackdrop = false)
+      if (rim > 0f) lensPill.drawPill(canvas, pillRect, rim)
     } else {
       drawRow(canvas, showPill, material, drawClearBody = true)
     }
@@ -291,34 +291,14 @@ class T3LiquidGlassSegmentedView(
   private fun drawRow(canvas: Canvas, showPill: Boolean, material: Float, drawClearBody: Boolean) {
     track.draw(canvas, pressed = false)
     if (showPill) {
-      val radius = pillRect.height() * 0.5f
-      flatPill.setBounds(pillRect.left, pillRect.top, pillRect.right, pillRect.bottom, radius)
       if (material <= 0f) {
-        flatPill.draw(canvas, pressed = false, withBackdrop = false)
+        flatPill.drawPill(canvas, pillRect)
       } else {
-        if (material < 1f) drawPillAtAlpha(canvas, flatPill, 1f - material, withBackdrop = false)
-        if (drawClearBody) drawPillAtAlpha(canvas, lensPill, material, withBackdrop = false)
+        if (material < 1f) flatPill.drawPill(canvas, pillRect, 1f - material)
+        if (drawClearBody) lensPill.drawPill(canvas, pillRect, material)
       }
     }
     drawLabels(canvas)
-  }
-
-  private fun drawPillAtAlpha(
-    canvas: Canvas,
-    surface: GlassSurfaceDrawer,
-    alpha: Float,
-    withBackdrop: Boolean,
-  ) {
-    surface.setBounds(pillRect.left, pillRect.top, pillRect.right, pillRect.bottom, pillRect.height() * 0.5f)
-    val save = canvas.saveLayerAlpha(
-      pillRect.left - 2f,
-      pillRect.top - 2f,
-      pillRect.right + 2f,
-      pillRect.bottom + 2f,
-      (alpha.coerceIn(0f, 1f) * 255f).roundToInt(),
-    )
-    surface.draw(canvas, pressed = false, withBackdrop = withBackdrop)
-    canvas.restoreToCount(save)
   }
 
   private fun drawLabels(canvas: Canvas) {
