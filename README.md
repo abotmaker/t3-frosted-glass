@@ -11,6 +11,7 @@ Builds the official [T3 Code](https://github.com/pingdotgg/t3code) Android app w
 - **URL scheme:** `t3code-glass://`
 - **Persistent signing key:** `keystore/t3-glass.keystore` (gitignored; ensures every future update upgrades in-place without losing login or connections)
 - **In-app GitHub Releases updater:** Automatically checks `abotmaker/t3-frosted-glass` Releases on launch/foreground, displays a floating Frosted Glass update banner when a newer APK is published, downloads with progress, verifies SHA-256 checksum, and hands off to Android's native 1-tap package installer.
+- **Local Android 16/17 Live-Updates Bridge:** Because sideloaded builds (`com.t3tools.t3code.glass`) cannot receive FCM pushes signed for the official Play Store package, T3 Frosted Glass bridges live connected-environment thread streams + authenticated T3 Connect relay snapshots directly into Android's promoted Live Update notifications (`Working`, `2 live`, `Approve`, `Answer`, `Done`, `Failed`) and high-priority `agent-alerts` banners, backed by a lightweight `dataSync` foreground service active only while an agent is running.
 - **Upstream EAS OTA updates:** disabled on the custom build so upstream OTA bundles never overwrite the Frosted Glass UI.
 
 ## Syncing Upstream T3 Code & Publishing Updates

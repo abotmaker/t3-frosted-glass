@@ -2361,6 +2361,374 @@ import { LiquidGlassUpdateBanner } from "./liquid-glass/LiquidGlassUpdateBanner"
   );
 }, glassUpdaterMarker);
 
+const localLiveUpdatesMarker = "/* t3-liquid-glass: local-live-updates */";
+patchFile("src/App.tsx", "app-local-live-notifications", (src) => {
+  let out = replaceOnce(
+    src,
+    'import { installGlassUpdateChecker } from "./liquid-glass/glassUpdater";',
+    `${localLiveUpdatesMarker}
+import { installGlassUpdateChecker } from "./liquid-glass/glassUpdater";
+import { installLocalLiveNotifications } from "./liquid-glass/localLiveNotifications";`,
+    "App.tsx local live notifications import",
+  );
+  return replaceOnce(
+    out,
+    "  installGlassUpdateChecker(),",
+    "  installGlassUpdateChecker(),\n  installLocalLiveNotifications(),",
+    "App.tsx local live notifications disposer",
+  );
+}, localLiveUpdatesMarker);
+
+patchFile(
+  "modules/t3-agent-notifications/android/src/main/java/expo/modules/t3agentnotifications/AgentNotifications.kt",
+  "agent-notifications-local-live-bridge",
+  (src) => {
+    let out = replaceOnce(
+      src,
+      "  @Volatile private var threadOnScreen: String? = null",
+      `${localLiveUpdatesMarker}
+  @Volatile private var threadOnScreen: String? = null
+  private var localForegroundMode: Boolean = false
+
+  /** Local Live-Updates bridge delivery path (used when FCM is unavailable). */
+  @Synchronized
+  fun receiveLocal(context: Context, data: Map<String, String>) {
+    localForegroundMode = true
+    try {
+      receive(context, data)
+    } finally {
+      localForegroundMode = false
+    }
+  }`,
+      "AgentNotifications receiveLocal",
+    );
+    out = replaceOnce(
+      out,
+      `    if (ongoing) builder.addAction(0, "Dismiss", dismissIntent)
+    manager(context).notify(ACTIVITY_TAG, ACTIVITY_ID, builder.build())`,
+      `    if (ongoing) builder.addAction(0, "Dismiss", dismissIntent)
+    val notification = builder.build()
+    if (localForegroundMode) {
+      if (active) {
+        if (!T3LiveUpdatesForegroundService.startOrUpdate(context, notification)) {
+          manager(context).notify(ACTIVITY_TAG, ACTIVITY_ID, notification)
+        }
+      } else if (T3LiveUpdatesForegroundService.stopDetaching(context)) {
+        manager(context).cancel(ACTIVITY_TAG, ACTIVITY_ID)
+        manager(context).notify(ACTIVITY_ID, notification)
+      } else {
+        manager(context).cancel(ACTIVITY_ID)
+        manager(context).notify(ACTIVITY_TAG, ACTIVITY_ID, notification)
+      }
+    } else {
+      manager(context).notify(ACTIVITY_TAG, ACTIVITY_ID, notification)
+    }`,
+      "AgentNotifications showActivity foreground bridge",
+    );
+    return replaceOnce(
+      out,
+      `  private fun cancelActivity(context: Context) {
+    manager(context).cancel(ACTIVITY_TAG, ACTIVITY_ID)`,
+      `  private fun cancelActivity(context: Context) {
+    T3LiveUpdatesForegroundService.stopRemoving(context)
+    manager(context).cancel(ACTIVITY_TAG, ACTIVITY_ID)
+    manager(context).cancel(ACTIVITY_ID)`,
+      "AgentNotifications cancelActivity stops local service",
+    );
+  },
+  localLiveUpdatesMarker,
+);
+
+patchFile(
+  "modules/t3-agent-notifications/android/src/main/java/expo/modules/t3agentnotifications/T3AgentNotificationsModule.kt",
+  "agent-notifications-module-local-bridge",
+  (src) => {
+    let out = replaceOnce(
+      src,
+      '    Name("T3AgentNotifications")',
+      `${localLiveUpdatesMarker}
+    Name("T3AgentNotifications")
+
+    Events("onLocalLiveTick")
+
+    OnCreate {
+      T3LiveUpdatesForegroundService.setTickListener {
+        runCatching {
+          sendEvent("onLocalLiveTick", mapOf("ts" to System.currentTimeMillis()))
+        }
+      }
+    }
+
+    OnDestroy {
+      T3LiveUpdatesForegroundService.setTickListener(null)
+    }`,
+      "T3AgentNotificationsModule tick event",
+    );
+    return replaceOnce(
+      out,
+      `    Function("clear") {
+      appContext.reactContext?.let { AgentNotifications.clear(it) }
+    }`,
+      `    Function("clear") {
+      appContext.reactContext?.let { AgentNotifications.clear(it) }
+    }
+
+    Function("receiveLocal") { data: Map<String, String> ->
+      appContext.reactContext?.let { AgentNotifications.receiveLocal(it, data) }
+    }
+
+    Function("stopLocalService") {
+      appContext.reactContext?.let { T3LiveUpdatesForegroundService.stopRemoving(it) }
+    }
+
+    Function("isLocalLiveUpdatesAvailable") { true }`,
+      "T3AgentNotificationsModule local bridge functions",
+    );
+  },
+  localLiveUpdatesMarker,
+);
+
+patchFile(
+  "src/features/agent-awareness/androidNotifications.ts",
+  "android-notifications-local-bridge",
+  (src) => {
+    let out = replaceOnce(
+      src,
+      `interface AndroidAgentNotifications {
+  configure(deviceId: string, userId: string, scheme: string, ongoingEnabled: boolean): void;
+  clear(): void;
+  setThreadOnScreen?(path: string | null): void;
+  openLiveUpdateSettings?(): boolean;
+  showShowcaseActivity?(scheme: string, data: Record<string, string>): void;
+}`,
+      `${localLiveUpdatesMarker}
+export interface AndroidAgentNotificationsConfig {
+  readonly deviceId: string;
+  readonly userId: string;
+  readonly ongoingEnabled: boolean;
+}
+
+interface AndroidAgentNotifications {
+  configure(deviceId: string, userId: string, scheme: string, ongoingEnabled: boolean): void;
+  clear(): void;
+  setThreadOnScreen?(path: string | null): void;
+  openLiveUpdateSettings?(): boolean;
+  showShowcaseActivity?(scheme: string, data: Record<string, string>): void;
+  receiveLocal?(data: Record<string, string>): void;
+  stopLocalService?(): void;
+  isLocalLiveUpdatesAvailable?(): boolean;
+  addListener?(eventName: string, listener: () => void): { remove(): void };
+}
+
+let lastConfigured: AndroidAgentNotificationsConfig | null = null;
+const configuredListeners = new Set<(config: AndroidAgentNotificationsConfig | null) => void>();`,
+      "androidNotifications interface",
+    );
+    out = replaceOnce(
+      out,
+      `export function configureAndroidAgentNotifications(
+  deviceId: string,
+  userId: string,
+  ongoingEnabled: boolean,
+): void {
+  native?.configure?.(deviceId, userId, appScheme(), ongoingEnabled);
+}`,
+      `export function configureAndroidAgentNotifications(
+  deviceId: string,
+  userId: string,
+  ongoingEnabled: boolean,
+): void {
+  lastConfigured = { deviceId, userId, ongoingEnabled };
+  native?.configure?.(deviceId, userId, appScheme(), ongoingEnabled);
+  for (const listener of configuredListeners) {
+    listener(lastConfigured);
+  }
+}`,
+      "androidNotifications configure notify",
+    );
+    out = replaceOnce(
+      out,
+      `export function clearAndroidAgentNotifications(): void {
+  native?.clear?.();
+}`,
+      `export function clearAndroidAgentNotifications(): void {
+  lastConfigured = null;
+  native?.clear?.();
+  for (const listener of configuredListeners) {
+    listener(null);
+  }
+}
+
+export function supportsLocalAndroidLiveUpdates(): boolean {
+  return (
+    Platform.OS === "android" &&
+    typeof native?.receiveLocal === "function" &&
+    native?.isLocalLiveUpdatesAvailable?.() === true
+  );
+}
+
+export function receiveLocalAndroidAgentActivity(data: Record<string, string>): void {
+  native?.receiveLocal?.(data);
+}
+
+export function stopLocalAndroidLiveService(): void {
+  native?.stopLocalService?.();
+}
+
+export function addLocalAndroidLiveTickListener(listener: () => void): () => void {
+  if (typeof native?.addListener !== "function") {
+    return () => {};
+  }
+  const subscription = native.addListener("onLocalLiveTick", listener);
+  return () => {
+    subscription.remove();
+  };
+}
+
+export function getLastAndroidAgentNotificationsConfig(): AndroidAgentNotificationsConfig | null {
+  return lastConfigured;
+}
+
+export function subscribeAndroidAgentNotificationsConfigured(
+  listener: (config: AndroidAgentNotificationsConfig | null) => void,
+): () => void {
+  configuredListeners.add(listener);
+  return () => {
+    configuredListeners.delete(listener);
+  };
+}`,
+      "androidNotifications local bridge exports",
+    );
+    return out;
+  },
+  localLiveUpdatesMarker,
+);
+
+patchFile(
+  "src/features/agent-awareness/remoteRegistration.ts",
+  "remote-registration-local-live-bridge",
+  (src) => {
+    let out = replaceOnce(
+      src,
+      `import { supportsAgentAwarenessPush } from "./capabilities";`,
+      `${localLiveUpdatesMarker}
+import {
+  emitLocalLiveAuthChanged,
+  emitLocalLiveWorkArmed,
+} from "../../liquid-glass/localLiveNotificationsBridge";
+import { supportsAgentAwarenessPush } from "./capabilities";`,
+      "remoteRegistration local live bridge import",
+    );
+    out = replaceOnce(
+      out,
+      `  relayTokenProvider = provider;
+  relayTokenProviderIdentity = provider ? (identity ?? null) : null;`,
+      `  relayTokenProvider = provider;
+  relayTokenProviderIdentity = provider ? (identity ?? null) : null;
+  emitLocalLiveAuthChanged(provider, relayTokenProviderIdentity);`,
+      "remoteRegistration emit auth changed",
+    );
+    out = replaceOnce(
+      out,
+      `export function releaseAgentAwarenessRelayTokenProvider(): void {
+  relayTokenProvider = null;
+  relayTokenProviderIdentity = null;`,
+      `export function releaseAgentAwarenessRelayTokenProvider(): void {
+  relayTokenProvider = null;
+  relayTokenProviderIdentity = null;
+  emitLocalLiveAuthChanged(null, null);`,
+      "remoteRegistration emit auth released",
+    );
+    return replaceOnce(
+      out,
+      `export function armAgentAwarenessLiveActivityForLocalWork(input: {
+  readonly environmentId: EnvironmentId;
+  readonly threadTitle: string;
+  readonly projectTitle: string;
+}): void {
+  if (!canRegisterRemoteLiveActivities() || !relayTokenProvider) {`,
+      `export function armAgentAwarenessLiveActivityForLocalWork(input: {
+  readonly environmentId: EnvironmentId;
+  readonly threadTitle: string;
+  readonly projectTitle: string;
+}): void {
+  emitLocalLiveWorkArmed(input);
+  if (!canRegisterRemoteLiveActivities() || !relayTokenProvider) {`,
+      "remoteRegistration emit local work armed",
+    );
+  },
+  localLiveUpdatesMarker,
+);
+
+patchFile(
+  "src/features/settings/SettingsNotificationsRouteScreen.tsx",
+  "settings-notifications-local-live-ready",
+  (src) => {
+    let out = replaceOnce(
+      src,
+      `import {
+  openAndroidLiveUpdateSettings,
+  supportsAndroidLiveUpdateSettings,
+} from "../agent-awareness/androidNotifications";`,
+      `${localLiveUpdatesMarker}
+import {
+  openAndroidLiveUpdateSettings,
+  supportsAndroidLiveUpdateSettings,
+  supportsLocalAndroidLiveUpdates,
+} from "../agent-awareness/androidNotifications";`,
+      "SettingsNotificationsRouteScreen import",
+    );
+    out = replaceOnce(
+      out,
+      `  const deviceRegistered = useDeviceRegistered();
+  const notificationsReady = useNotificationsReady();`,
+      `  const localLiveUpdatesAvailable = supportsLocalAndroidLiveUpdates();
+  const deviceRegistered = useDeviceRegistered();
+  const notificationsReady = useNotificationsReady();`,
+      "SettingsNotificationsRouteScreen localLiveUpdatesAvailable",
+    );
+    out = replaceOnce(
+      out,
+      `      if (!agentAwarenessNotificationsReady()) {`,
+      `      if (!agentAwarenessNotificationsReady() && !localLiveUpdatesAvailable) {`,
+      "SettingsNotificationsRouteScreen requestNotifications guard",
+    );
+    out = replaceOnce(
+      out,
+      `    } else if (getAgentAwarenessRegistrationStatus() === "registered") {`,
+      `    } else if (getAgentAwarenessRegistrationStatus() === "registered" || localLiveUpdatesAvailable) {`,
+      "SettingsNotificationsRouteScreen linkEnvironments ready check",
+    );
+    out = replaceOnce(
+      out,
+      `            value={
+              agentAwarenessPushAvailable && notificationStatus === "enabled" && notificationsReady
+            }`,
+      `            value={
+              agentAwarenessPushAvailable &&
+              notificationStatus === "enabled" &&
+              (notificationsReady || localLiveUpdatesAvailable)
+            }`,
+      "SettingsNotificationsRouteScreen Device Notifications switch value",
+    );
+    return replaceOnce(
+      out,
+      `            value={
+              agentAwarenessPushAvailable &&
+              (liveActivityStatus === "enabled" || liveActivityStatus === "linking") &&
+              deviceRegistered
+            }`,
+      `            value={
+              agentAwarenessPushAvailable &&
+              (liveActivityStatus === "enabled" || liveActivityStatus === "linking") &&
+              (deviceRegistered || localLiveUpdatesAvailable)
+            }`,
+      "SettingsNotificationsRouteScreen Agent Live Updates switch value",
+    );
+  },
+  localLiveUpdatesMarker,
+);
+
 patchFile("src/features/pull-requests/PullRequestDescription.tsx", "pr-description-fade-hex", (src) => {
   return replaceOnce(
     src,

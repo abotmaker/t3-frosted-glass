@@ -70,9 +70,14 @@ function withGlassUpdaterManifest(config) {
   return withAndroidManifest(config, (nextConfig) => {
     const manifest = nextConfig.modResults.manifest;
     manifest["uses-permission"] = manifest["uses-permission"] ?? [];
-    const installPerm = "android.permission.REQUEST_INSTALL_PACKAGES";
-    if (!manifest["uses-permission"].some((item) => item.$?.["android:name"] === installPerm)) {
-      manifest["uses-permission"].push({ $: { "android:name": installPerm } });
+    for (const permission of [
+      "android.permission.REQUEST_INSTALL_PACKAGES",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+    ]) {
+      if (!manifest["uses-permission"].some((item) => item.$?.["android:name"] === permission)) {
+        manifest["uses-permission"].push({ $: { "android:name": permission } });
+      }
     }
 
     const app = manifest.application?.[0];
@@ -95,6 +100,19 @@ function withGlassUpdaterManifest(config) {
               },
             },
           ],
+        });
+      }
+
+      app.service = app.service ?? [];
+      const liveServiceName =
+        "expo.modules.t3agentnotifications.T3LiveUpdatesForegroundService";
+      if (!app.service.some((item) => item.$?.["android:name"] === liveServiceName)) {
+        app.service.push({
+          $: {
+            "android:name": liveServiceName,
+            "android:exported": "false",
+            "android:foregroundServiceType": "dataSync",
+          },
         });
       }
     }

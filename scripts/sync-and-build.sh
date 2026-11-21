@@ -202,6 +202,8 @@ if [[ "$DO_TESTS" -eq 1 ]]; then
   (cd "$MOBILE_DIR" && "${PNPM_CMD[@]}" exec vp test run \
     src/liquid-glass/liquidGlass.test.ts \
     src/liquid-glass/glassUpdater.test.ts \
+    src/liquid-glass/localLiveNotificationsPayload.test.ts \
+    src/features/agent-awareness/remoteRegistration.test.ts \
     app.config.test.ts \
     src/dependency-graph.test.ts \
     src/reactCompilerCoverage.test.ts \
@@ -252,8 +254,8 @@ export EXPO_NO_TYPESCRIPT_SETUP=1
 
 (cd "$MOBILE_DIR" && "${PNPM_CMD[@]}" exec expo prebuild --clean --platform android)
 
-echo "==> Running native t3-liquid-glass Kotlin unit tests..."
-(cd "$MOBILE_DIR/android" && ./gradlew :t3-liquid-glass:testDebugUnitTest --no-daemon)
+echo "==> Running native t3-liquid-glass & t3-agent-notifications Kotlin unit tests..."
+(cd "$MOBILE_DIR/android" && ./gradlew :t3-liquid-glass:testDebugUnitTest :t3-agent-notifications:testDebugUnitTest --no-daemon)
 
 if [[ "$BUILD_TYPE" == "release" ]]; then
   echo "==> Building standalone signed Release APK (arm64-v8a)..."
