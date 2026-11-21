@@ -2439,6 +2439,78 @@ patchFile(
   localLiveUpdatesMarker,
 );
 
+const compactHeadlineMarker = "/* t3-liquid-glass: compact-live-headline */";
+patchFile(
+  "modules/t3-agent-notifications/android/src/main/java/expo/modules/t3agentnotifications/AgentNotifications.kt",
+  "agent-notifications-compact-headline",
+  (src) => {
+    return replaceOnce(
+      src,
+      "    val presentation = ActivityPresentation(data, active)",
+      `    ${compactHeadlineMarker}
+    val presentation = ActivityPresentation(data, active, localForegroundMode)`,
+      "AgentNotifications pass compactHeadline",
+    );
+  },
+  compactHeadlineMarker,
+);
+
+patchFile(
+  "modules/t3-agent-notifications/android/src/main/java/expo/modules/t3agentnotifications/AgentActivityPresentation.kt",
+  "agent-activity-presentation-compact-headline",
+  (src) => {
+    let out = replaceOnce(
+      src,
+      "internal class ActivityPresentation(data: Map<String, String>, private val active: Boolean) {",
+      `${compactHeadlineMarker}
+internal class ActivityPresentation(
+  data: Map<String, String>,
+  private val active: Boolean,
+  private val compactHeadline: Boolean = false
+) {`,
+      "ActivityPresentation constructor compactHeadline",
+    );
+    out = replaceOnce(
+      out,
+      `    val tintedSummary = tint != null && rows.size > 1 && phase != ActivityPhase.RUNNING &&
+      phase != ActivityPhase.STARTING
+    builder.setContentTitle(if (tintedSummary) tinted(summary, tint!!) else summary)`,
+      `    if (compactHeadline && rows.size == 1 && hero != null) {
+      builder.setContentTitle(compactSingleTitle(context, hero))
+    } else {
+      val tintedSummary = tint != null && rows.size > 1 && phase != ActivityPhase.RUNNING &&
+        phase != ActivityPhase.STARTING
+      builder.setContentTitle(if (tintedSummary) tinted(summary, tint!!) else summary)
+    }`,
+      "ActivityPresentation compact single-thread title",
+    );
+    out = replaceOnce(
+      out,
+      "    rows.size == 1 -> statusLine(context, hero.copy(title = hero.project), \"\")",
+      `    rows.size == 1 && compactHeadline -> hero.title
+    rows.size == 1 -> statusLine(context, hero.copy(title = hero.project), "")`,
+      "ActivityPresentation compact single-thread body",
+    );
+    return replaceOnce(
+      out,
+      `  private fun tinted(text: String, color: Int, bold: Boolean = false) =`,
+      `  private fun compactSingleTitle(context: Context, row: ActivityRow): CharSequence =
+    SpannableStringBuilder().apply {
+      val status = ActivityPhase.forStatus(row.status)
+      val color = ContextCompat.getColor(context, status?.color ?: R.color.agent_activity_waiting)
+      append(tinted(row.status, color, bold = true))
+      if (row.project.isNotBlank()) {
+        append(" · ").append(row.project)
+      }
+    }
+
+  private fun tinted(text: String, color: Int, bold: Boolean = false) =`,
+      "ActivityPresentation compactSingleTitle helper",
+    );
+  },
+  compactHeadlineMarker,
+);
+
 patchFile(
   "modules/t3-agent-notifications/android/src/main/java/expo/modules/t3agentnotifications/T3AgentNotificationsModule.kt",
   "agent-notifications-module-local-bridge",

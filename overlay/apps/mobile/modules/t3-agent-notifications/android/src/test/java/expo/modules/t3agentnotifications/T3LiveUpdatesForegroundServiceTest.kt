@@ -60,7 +60,8 @@ class T3LiveUpdatesForegroundServiceTest : AgentNotificationsFixture() {
     assertTrue(T3LiveUpdatesForegroundService.isRunning())
 
     val fgNotification = shadowOf(serviceController.get()).lastForegroundNotification
-    assertEquals("Build Live Bridge", fgNotification.extras.getString(Notification.EXTRA_TITLE))
+    assertEquals("Working · t3-android", fgNotification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString())
+    assertEquals("Build Live Bridge", fgNotification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString())
     assertTrue(fgNotification.flags and Notification.FLAG_ONGOING_EVENT != 0)
     assertTrue(NotificationCompat.isRequestPromotedOngoing(fgNotification))
     assertEquals("Working", fgNotification.extras.getString(NotificationCompat.EXTRA_SHORT_CRITICAL_TEXT))
@@ -101,6 +102,14 @@ class T3LiveUpdatesForegroundServiceTest : AgentNotificationsFixture() {
     assertFalse(T3LiveUpdatesForegroundService.isRunning())
     val terminalCards = manager.activeNotifications.filter { it.id == 73001 }
     assertEquals(1, terminalCards.size)
+    assertEquals(
+      "Done · t3-android",
+      terminalCards.single().notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+    )
+    assertEquals(
+      "Build Live Bridge",
+      terminalCards.single().notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+    )
     assertEquals(
       if (Build.VERSION.SDK_INT >= 36) "Done" else null,
       terminalCards.single().notification.extras.getString(NotificationCompat.EXTRA_SHORT_CRITICAL_TEXT)
