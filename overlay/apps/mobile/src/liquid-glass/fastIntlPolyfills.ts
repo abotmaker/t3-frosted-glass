@@ -7,7 +7,7 @@
  *   - `Intl.getCanonicalLocales`
  *   - `Intl.Locale` construction
  *   - `Intl.DisplayNames.prototype.of`
- *   - `Intl.NumberFormat` & `Intl.DateTimeFormat` construction for plain primitive options
+ *   - `Intl.NumberFormat` & explicit-timeZone `Intl.DateTimeFormat` construction for plain options
  *
  * Installed immediately after `@formatjs` polyfills in `src/i18n/intl-polyfills.ts`,
  * before `gt-react-native` captures any `Intl` constructors.
@@ -18,57 +18,82 @@ const MAX_CONSTRUCTOR_CACHE = 128;
 const MAX_LOCALE_CACHE = 256;
 const MAX_LOOKUP_CACHE = 512;
 
-function serializeLocalesArg(
-  locales: Intl.LocalesArgument,
-  OrigLocale: typeof Intl.Locale | undefined,
-): string | null {
-  if (locales === undefined) return "__def__";
-  if (typeof locales === "string") return `s:${locales}`;
-  if (OrigLocale && locales instanceof OrigLocale) return `l:${locales.toString()}`;
+type GenericConstructor = new (...args: unknown[]) => object;
+
+interface SerializedOptions {
+  readonly key: string;
+  readonly hasExplicitTimeZone: boolean;
+}
+
+function serializeLocalesArg(locales: Intl.LocalesArgument): string | null {
+  if (locales === undefined) return "u";
+  if (typeof locales === "string") return JSON.stringify(["s", locales]);
   if (Array.isArray(locales)) {
-    if (locales.length === 0) return "a:";
+    if (
+      locales.length > 16 ||
+      Object.getPrototypeOf(locales) !== Array.prototype ||
+      Object.prototype.hasOwnProperty.call(locales, Symbol.iterator)
+    ) {
+      return null;
+    }
     const parts: string[] = [];
     for (let i = 0; i < locales.length; i++) {
-      const item = locales[i];
-      if (typeof item === "string") {
-        parts.push(item);
-      } else if (OrigLocale && item instanceof OrigLocale) {
-        parts.push(item.toString());
-      } else {
+      const desc = Object.getOwnPropertyDescriptor(locales, i);
+      if (!desc || !("value" in desc) || typeof desc.value !== "string") {
         return null;
       }
+      parts.push(desc.value);
     }
-    return `a:${parts.join("\u0000")}`;
+    return JSON.stringify(["a", parts]);
   }
   return null;
 }
 
-function serializePlainOptions(options: unknown): string | null {
-  if (options === undefined) return "";
+function serializePlainOptions(options: unknown): SerializedOptions | null {
+  if (options === undefined) return { key: "", hasExplicitTimeZone: false };
   if (typeof options !== "object" || options === null) return null;
   const proto = Object.getPrototypeOf(options);
   if (proto !== Object.prototype && proto !== null) return null;
-  const keys = Object.keys(options as Record<string, unknown>);
-  if (keys.length === 0) return "";
+  const keys = Object.getOwnPropertyNames(options);
+  if (keys.length === 0) return { key: "", hasExplicitTimeZone: false };
   if (keys.length > 16) return null;
   if (keys.length > 1) keys.sort();
-  const parts: string[] = [];
+  const entries: Array<[string, string, string | boolean]> = [];
+  let hasExplicitTimeZone = false;
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i]!;
-    const value = (options as Record<string, unknown>)[key];
-    const type = typeof value;
+    const desc = Object.getOwnPropertyDescriptor(options, key);
+    if (!desc || !("value" in desc)) return null;
+    const value = desc.value;
     if (value === undefined) continue;
+    const type = typeof value;
     if (type !== "string" && type !== "number" && type !== "boolean") {
       return null;
     }
-    parts.push(`${key}=${type[0]}:${String(value)}`);
+    if (key === "timeZone" && type === "string") {
+      hasExplicitTimeZone = true;
+    }
+    entries.push([
+      key,
+      type,
+      type === "number"
+        ? Object.is(value, -0)
+          ? "-0"
+          : String(value)
+        : (value as string | boolean),
+    ]);
   }
-  return parts.join("|");
+  return { key: JSON.stringify(entries), hasExplicitTimeZone };
+}
+
+function makeCacheKey(locKey: string, optKey: string): string {
+  return JSON.stringify([locKey, optKey]);
 }
 
 function wrapSupportedLocalesOf(
-  origFn: ((locales: Intl.LocalesArgument, options?: { localeMatcher?: string }) => string[]) | undefined,
-  OrigLocale: typeof Intl.Locale | undefined,
+  origFn:
+    | ((locales: Intl.LocalesArgument, options?: { localeMatcher?: string }) => string[])
+    | undefined,
 ) {
   if (typeof origFn !== "function") return origFn;
   const cache = new Map<string, readonly string[]>();
@@ -77,10 +102,10 @@ function wrapSupportedLocalesOf(
     locales: Intl.LocalesArgument,
     options?: { localeMatcher?: string },
   ): string[] {
-    const locKey = serializeLocalesArg(locales, OrigLocale);
-    const optKey = serializePlainOptions(options);
-    if (locKey !== null && optKey !== null) {
-      const key = `${locKey}\u0001${optKey}`;
+    const locKey = serializeLocalesArg(locales);
+    const opt = serializePlainOptions(options);
+    if (locKey !== null && opt !== null) {
+      const key = makeCacheKey(locKey, opt.key);
       const cached = cache.get(key);
       if (cached !== undefined) return cached.slice();
       const result = origFn.call(this, locales, options);
@@ -97,8 +122,6 @@ export function installFastIntlPolyfills(): void {
   if (!intlObj || intlObj[INSTALLED_FLAG]) return;
   intlObj[INSTALLED_FLAG] = true;
 
-  const OrigLocale = intlObj.Locale as typeof Intl.Locale | undefined;
-
   // 1. Intl.getCanonicalLocales
   const origGetCanonicalLocales = intlObj.getCanonicalLocales as
     | ((locales?: Intl.LocalesArgument) => string[])
@@ -108,7 +131,7 @@ export function installFastIntlPolyfills(): void {
     intlObj.getCanonicalLocales = function getCanonicalLocales(
       locales?: Intl.LocalesArgument,
     ): string[] {
-      const key = serializeLocalesArg(locales, OrigLocale);
+      const key = serializeLocalesArg(locales);
       if (key !== null) {
         const cached = canonicalCache.get(key);
         if (cached !== undefined) return cached.slice();
@@ -122,6 +145,7 @@ export function installFastIntlPolyfills(): void {
   }
 
   // 2. Intl.Locale (immutable instances + memoized getters & toString)
+  const OrigLocale = intlObj.Locale as typeof Intl.Locale | undefined;
   if (typeof OrigLocale === "function") {
     const TargetLocale = OrigLocale;
     const localePropCache = new WeakMap<object, Record<string, unknown>>();
@@ -196,23 +220,19 @@ export function installFastIntlPolyfills(): void {
         return (TargetLocale as unknown as (...args: unknown[]) => unknown)(tag, options);
       }
       if (new.target !== CachedLocale) {
-        return Reflect.construct(TargetLocale as unknown as Function, [tag, options], new.target);
+        return Reflect.construct(
+          TargetLocale as unknown as GenericConstructor,
+          [tag, options],
+          new.target as unknown as GenericConstructor,
+        );
       }
-      if (options === undefined) {
-        const key =
-          typeof tag === "string"
-            ? tag
-            : tag instanceof TargetLocale
-              ? tag.toString()
-              : null;
-        if (key !== null) {
-          const cached = localeCache.get(key);
-          if (cached !== undefined) return cached;
-          const created = new TargetLocale(tag);
-          if (localeCache.size >= MAX_LOCALE_CACHE) localeCache.clear();
-          localeCache.set(key, created);
-          return created;
-        }
+      if (options === undefined && typeof tag === "string") {
+        const cached = localeCache.get(tag);
+        if (cached !== undefined) return cached;
+        const created = new TargetLocale(tag);
+        if (localeCache.size >= MAX_LOCALE_CACHE) localeCache.clear();
+        localeCache.set(tag, created);
+        return created;
       }
       return new TargetLocale(tag, options);
     }
@@ -257,12 +277,16 @@ export function installFastIntlPolyfills(): void {
         return (TargetPluralRules as unknown as (...args: unknown[]) => unknown)(locales, options);
       }
       if (new.target !== CachedPluralRules) {
-        return Reflect.construct(TargetPluralRules as unknown as Function, [locales, options], new.target);
+        return Reflect.construct(
+          TargetPluralRules as unknown as GenericConstructor,
+          [locales, options],
+          new.target as unknown as GenericConstructor,
+        );
       }
-      const locKey = serializeLocalesArg(locales, OrigLocale);
-      const optKey = serializePlainOptions(options);
-      if (locKey !== null && optKey !== null) {
-        const key = `${locKey}\u0001${optKey}`;
+      const locKey = serializeLocalesArg(locales);
+      const opt = serializePlainOptions(options);
+      if (locKey !== null && opt !== null) {
+        const key = makeCacheKey(locKey, opt.key);
         const cached = pluralRulesCache.get(key);
         if (cached !== undefined) return cached;
         const created = new TargetPluralRules(locales, options);
@@ -279,7 +303,6 @@ export function installFastIntlPolyfills(): void {
         locales: Intl.LocalesArgument,
         options?: { localeMatcher?: string },
       ) => string[],
-      OrigLocale,
     );
     intlObj.PluralRules = CachedPluralRules;
   }
@@ -319,15 +342,15 @@ export function installFastIntlPolyfills(): void {
       }
       if (new.target !== CachedDisplayNames) {
         return Reflect.construct(
-          TargetDisplayNames as unknown as Function,
+          TargetDisplayNames as unknown as GenericConstructor,
           [locales, options],
-          new.target,
+          new.target as unknown as GenericConstructor,
         );
       }
-      const locKey = serializeLocalesArg(locales, OrigLocale);
-      const optKey = serializePlainOptions(options);
-      if (locKey !== null && optKey !== null) {
-        const key = `${locKey}\u0001${optKey}`;
+      const locKey = serializeLocalesArg(locales);
+      const opt = serializePlainOptions(options);
+      if (locKey !== null && opt !== null) {
+        const key = makeCacheKey(locKey, opt.key);
         const cached = displayNamesCache.get(key);
         if (cached !== undefined) return cached;
         const created = new TargetDisplayNames(locales, options);
@@ -344,7 +367,6 @@ export function installFastIntlPolyfills(): void {
         locales: Intl.LocalesArgument,
         options?: { localeMatcher?: string },
       ) => string[],
-      OrigLocale,
     );
     intlObj.DisplayNames = CachedDisplayNames;
   }
@@ -359,7 +381,6 @@ export function installFastIntlPolyfills(): void {
         locales: Intl.LocalesArgument,
         options?: { localeMatcher?: string },
       ) => string[],
-      OrigLocale,
     );
     function CachedNumberFormat(
       this: unknown,
@@ -367,12 +388,16 @@ export function installFastIntlPolyfills(): void {
       options?: Intl.NumberFormatOptions,
     ) {
       if (new.target && new.target !== CachedNumberFormat) {
-        return Reflect.construct(TargetNumberFormat as unknown as Function, [locales, options], new.target);
+        return Reflect.construct(
+          TargetNumberFormat as unknown as GenericConstructor,
+          [locales, options],
+          new.target as unknown as GenericConstructor,
+        );
       }
-      const locKey = serializeLocalesArg(locales, OrigLocale);
-      const optKey = serializePlainOptions(options);
-      if (locKey !== null && optKey !== null) {
-        const key = `${locKey}\u0001${optKey}`;
+      const locKey = serializeLocalesArg(locales);
+      const opt = serializePlainOptions(options);
+      if (locKey !== null && opt !== null) {
+        const key = makeCacheKey(locKey, opt.key);
         const cached = numberFormatCache.get(key);
         if (cached !== undefined) return cached;
         const created = new TargetNumberFormat(locales, options);
@@ -398,7 +423,6 @@ export function installFastIntlPolyfills(): void {
         locales: Intl.LocalesArgument,
         options?: { localeMatcher?: string },
       ) => string[],
-      OrigLocale,
     );
     function CachedDateTimeFormat(
       this: unknown,
@@ -406,12 +430,17 @@ export function installFastIntlPolyfills(): void {
       options?: Intl.DateTimeFormatOptions,
     ) {
       if (new.target && new.target !== CachedDateTimeFormat) {
-        return Reflect.construct(TargetDateTimeFormat as unknown as Function, [locales, options], new.target);
+        return Reflect.construct(
+          TargetDateTimeFormat as unknown as GenericConstructor,
+          [locales, options],
+          new.target as unknown as GenericConstructor,
+        );
       }
-      const locKey = serializeLocalesArg(locales, OrigLocale);
-      const optKey = serializePlainOptions(options);
-      if (locKey !== null && optKey !== null) {
-        const key = `${locKey}\u0001${optKey}`;
+      const locKey = serializeLocalesArg(locales);
+      const opt = serializePlainOptions(options);
+      // Skip caching implicit-zone formatters so device time zone changes take effect.
+      if (locKey !== null && opt !== null && opt.hasExplicitTimeZone) {
+        const key = makeCacheKey(locKey, opt.key);
         const cached = dateTimeFormatCache.get(key);
         if (cached !== undefined) return cached;
         const created = new TargetDateTimeFormat(locales, options);
