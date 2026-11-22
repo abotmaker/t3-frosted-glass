@@ -3180,6 +3180,37 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {`,
   );
 }, mountFastPathMarker);
 
+patchFile("src/components/ProviderIcon.tsx", "provider-instance-badge-glass-contrast", (src) => {
+  let out = replaceOnce(
+    src,
+    `  const accentColor = normalizeProviderAccentColor(props.accentColor);`,
+    `${MARKER}
+  const accentColor = normalizeProviderAccentColor(props.accentColor);
+  const visibleSurfaceColor =
+    props.surfaceColor &&
+    props.surfaceColor !== "transparent" &&
+    !/,\\s*0(?:\\.0+)?\\s*\\)$/.test(props.surfaceColor.trim())
+      ? props.surfaceColor
+      : undefined;`,
+    "ProviderIcon visibleSurfaceColor",
+  );
+  out = replaceOnce(
+    out,
+    `            className={cn(!accentColor && "bg-card", !props.surfaceColor && "border-screen")}`,
+    `            className={cn(
+              !accentColor && "bg-card android:bg-card-alt",
+              !visibleSurfaceColor && "border-screen android:border-border",
+            )}`,
+    "ProviderIcon badge glass surface & border",
+  );
+  return replaceOnce(
+    out,
+    `              ...(props.surfaceColor ? { borderColor: props.surfaceColor } : {}),`,
+    `              ...(visibleSurfaceColor ? { borderColor: visibleSurfaceColor } : {}),`,
+    "ProviderIcon badge visible borderColor",
+  );
+});
+
 for (const [file, mock] of [
   ["components/ui/AppBar.android.test.tsx", 'vi.mock("../../liquid-glass/LiquidGlassHeader", () => ({ GLASS_HEADER_CONTENT_PADDING: 14, LiquidGlassHeader: () => null }));'],
   ["components/ui/AndroidAnchoredMenu.android.test.tsx", 'vi.mock("../../liquid-glass/LiquidGlassMenu", () => ({ LiquidGlassMenu: () => null }));'],
