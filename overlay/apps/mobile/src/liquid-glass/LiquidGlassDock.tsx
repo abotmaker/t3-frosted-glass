@@ -8,6 +8,7 @@ import {
 
 export interface LiquidGlassDockProps {
   readonly tabs: readonly string[];
+  readonly tabTitles?: Readonly<Record<string, string>>;
   readonly selectedTab: string;
   readonly dark: boolean;
   readonly floating: boolean;
@@ -26,6 +27,7 @@ export interface LiquidGlassDockProps {
  */
 export function LiquidGlassDock({
   tabs,
+  tabTitles,
   selectedTab,
   dark,
   floating,
@@ -43,6 +45,7 @@ export function LiquidGlassDock({
   return (
     <NativeLiquidGlassDockView
       tabs={tabs}
+      tabTitles={tabTitles}
       selectedTab={selectedTab}
       dark={dark}
       floating={floating}

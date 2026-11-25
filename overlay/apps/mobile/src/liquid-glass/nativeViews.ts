@@ -43,6 +43,7 @@ export interface NativeSurfaceProps extends ViewProps {
 
 export interface NativeDockProps extends ViewProps {
   readonly tabs: readonly string[];
+  readonly tabTitles?: Readonly<Record<string, string>>;
   readonly selectedTab: string;
   readonly dark: boolean;
   readonly floating: boolean;

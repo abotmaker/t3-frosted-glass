@@ -1037,6 +1037,7 @@ import { NativeLiquidGlassDockView } from "../../../liquid-glass/nativeViews";`,
       <View style={floating ? undefined : { paddingBottom: insets.bottom }}>
         <LiquidGlassDock
           tabs={tabs}
+          tabTitles={Object.fromEntries(tabs.map((tab) => [tab, m(TAB_TITLES[tab])]))}
           selectedTab={selectedTab}
           dark={dark}
           floating={floating}
@@ -1449,6 +1450,15 @@ patchFile("src/features/usage/UsageLimitsPooled.tsx", "android-glass-usage-limit
       card,
       '$1<UsageCard className="' + layout + '">$2$1</UsageCard>',
       "usage limits glass card " + firstChild,
+    );
+  }
+  const quotaOpening = '<View key={source.key} className="gap-3 rounded-[24px] bg-grouped-card p-4">';
+  if (out.includes(quotaOpening)) {
+    out = replaceRegexOnce(
+      out,
+      /^([ \t]*)<View key=\{source\.key\} className="gap-3 rounded-\[24px\] bg-grouped-card p-4">([\s\S]*?)^\1<\/View>/m,
+      '$1<UsageCard key={source.key} className="gap-3">$2$1</UsageCard>',
+      "usage limits http quota glass card",
     );
   }
   return out;
@@ -2412,7 +2422,14 @@ patchFile(
   fun receiveLocal(context: Context, data: Map<String, String>) {
     localForegroundMode = true
     try {
-      receive(context, data)
+      val userId = data["user_id"]
+      val deviceId = data["device_id"]
+      val resolved = if (data["user_hash"] == null && userId != null && deviceId != null) {
+        data + ("user_hash" to userHash(userId, deviceId))
+      } else {
+        data
+      }
+      receive(context, resolved)
     } finally {
       localForegroundMode = false
     }
@@ -3210,6 +3227,313 @@ patchFile("src/components/ProviderIcon.tsx", "provider-instance-badge-glass-cont
     "ProviderIcon badge visible borderColor",
   );
 });
+
+patchFile(
+  "src/features/cloud/ConnectOnboardingRouteScreen.tsx",
+  "connect-onboarding-glass-cards",
+  (src) => {
+    let out = replaceOnce(
+      src,
+      `import { View } from "react-native";`,
+      `${MARKER}
+import type { ReactNode } from "react";
+import { Platform, View } from "react-native";
+import { LiquidGlassSurface } from "../../liquid-glass/LiquidGlassSurface";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";`,
+      "ConnectOnboardingRouteScreen imports",
+    );
+    out = replaceOnce(
+      out,
+      `          <View collapsable={false} className="rounded-[24px] bg-grouped-card p-5">
+            <Text className="text-sm leading-normal text-foreground-muted">
+              {gt("Sign in to your T3 account to set up {product}.", { product: "T3 Connect" })}
+            </Text>
+          </View>`,
+      `          <ConnectOnboardingGlassCard className="p-5">
+            <Text className="text-sm leading-normal text-foreground-muted">
+              {gt("Sign in to your T3 account to set up {product}.", { product: "T3 Connect" })}
+            </Text>
+          </ConnectOnboardingGlassCard>`,
+      "ConnectOnboardingRouteScreen signed-out card",
+    );
+    out = replaceOnce(
+      out,
+      `            <View collapsable={false} className="overflow-hidden rounded-[24px] bg-grouped-card">
+              <ConnectionTracesSwitch />
+            </View>`,
+      `            <ConnectOnboardingGlassCard>
+              <ConnectionTracesSwitch />
+            </ConnectOnboardingGlassCard>`,
+      "ConnectOnboardingRouteScreen connection traces card",
+    );
+    return (
+      out +
+      `
+function ConnectOnboardingGlassCard(props: {
+  readonly className?: string;
+  readonly children: ReactNode;
+}) {
+  const { themeAppearance } = useAppearancePreferences();
+  if (Platform.OS === "android") {
+    return (
+      <LiquidGlassSurface
+        look="card"
+        dark={themeAppearance === "dark"}
+        cornerRadius={24}
+        className={props.className}
+      >
+        {props.children}
+      </LiquidGlassSurface>
+    );
+  }
+  return (
+    <View
+      collapsable={false}
+      className={
+        props.className
+          ? \`overflow-hidden rounded-[24px] bg-grouped-card \${props.className}\`
+          : "overflow-hidden rounded-[24px] bg-grouped-card"
+      }
+    >
+      {props.children}
+    </View>
+  );
+}
+`
+    );
+  },
+);
+
+if (fs.existsSync(path.join(MOBILE_DIR, "src/features/workflows/WorkflowTimeline.tsx"))) {
+  patchFile(
+    "src/features/workflows/WorkflowTimeline.tsx",
+    "workflow-timeline-opaque-mark-fill",
+    (src) => {
+      let out = replaceOnce(
+        src,
+        `import { Pressable, StyleSheet, View } from "react-native";`,
+        `${MARKER}
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";`,
+        "WorkflowTimeline imports",
+      );
+      return replaceOnce(
+        out,
+        `function usePalette(): Palette {
+  return {
+    working: colorOf(useResolveClassNames("text-primary"), "color"),
+    input: colorOf(useResolveClassNames("text-warning-foreground"), "color"),
+    muted: colorOf(useResolveClassNames("text-foreground-muted"), "color"),
+    failed: colorOf(useResolveClassNames("text-danger-foreground"), "color"),
+    rail: colorOf(useResolveClassNames("bg-border"), "backgroundColor"),
+    screen: colorOf(useResolveClassNames("bg-screen"), "backgroundColor"),
+  };
+}`,
+        `function usePalette(): Palette {
+  const { themeVariables } = useAppearancePreferences();
+  const resolvedScreen = colorOf(useResolveClassNames("bg-screen"), "backgroundColor");
+  return {
+    working: colorOf(useResolveClassNames("text-primary"), "color"),
+    input: colorOf(useResolveClassNames("text-warning-foreground"), "color"),
+    muted: colorOf(useResolveClassNames("text-foreground-muted"), "color"),
+    failed: colorOf(useResolveClassNames("text-danger-foreground"), "color"),
+    rail: colorOf(useResolveClassNames("bg-border"), "backgroundColor"),
+    screen: Platform.OS === "android" ? themeVariables["--color-status-bar"] : resolvedScreen,
+  };
+}`,
+        "WorkflowTimeline Android opaque backdrop fill for SVG marks",
+      );
+    },
+  );
+}
+
+if (fs.existsSync(path.join(MOBILE_DIR, "src/features/workflows/WorkflowStepCard.tsx"))) {
+  patchFile("src/features/workflows/WorkflowStepCard.tsx", "workflow-step-card-glass", (src) => {
+    let out = replaceOnce(
+      src,
+      `import { View } from "react-native";`,
+      `${MARKER}
+import { Platform, View } from "react-native";
+import { LiquidGlassSurface } from "../../liquid-glass/LiquidGlassSurface";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";`,
+      "WorkflowStepCard imports",
+    );
+    return replaceOnce(
+      out,
+      `export function Card(props: { readonly tone?: "input" | "failed"; readonly children: ReactNode }) {
+  return (
+    <View
+      className={cn(
+        "gap-2 rounded-2xl border p-4",
+        props.tone === "input"
+          ? "border-warning-border bg-warning"
+          : props.tone === "failed"
+            ? "border-danger-border bg-danger/5"
+            : "border-border bg-card",
+      )}
+    >
+      {props.children}
+    </View>
+  );
+}`,
+      `export function Card(props: { readonly tone?: "input" | "failed"; readonly children: ReactNode }) {
+  const { themeAppearance, themeVariables } = useAppearancePreferences();
+  if (Platform.OS === "android") {
+    const accentColor =
+      props.tone === "input"
+        ? themeVariables["--color-warning-foreground"]
+        : props.tone === "failed"
+          ? themeVariables["--color-danger-foreground"]
+          : null;
+    return (
+      <LiquidGlassSurface
+        look="card"
+        dark={themeAppearance === "dark"}
+        cornerRadius={20}
+        accentColor={accentColor}
+        accentOpacity={accentColor ? 0.14 : null}
+        className="gap-2 p-4"
+      >
+        {props.children}
+      </LiquidGlassSurface>
+    );
+  }
+  return (
+    <View
+      className={cn(
+        "gap-2 rounded-2xl border p-4",
+        props.tone === "input"
+          ? "border-warning-border bg-warning"
+          : props.tone === "failed"
+            ? "border-danger-border bg-danger/5"
+            : "border-border bg-card",
+      )}
+    >
+      {props.children}
+    </View>
+  );
+}`,
+      "WorkflowStepCard Android LiquidGlassSurface card",
+    );
+  });
+}
+
+if (fs.existsSync(path.join(MOBILE_DIR, "src/features/workflows/WorkflowRunRouteScreen.tsx"))) {
+  patchFile(
+    "src/features/workflows/WorkflowRunRouteScreen.tsx",
+    "workflow-run-reason-input-glass",
+    (src) => {
+      let out = replaceOnce(
+        src,
+        `import { useRef, useState } from "react";
+import { View } from "react-native";`,
+        `${MARKER}
+import { type ComponentProps, useRef, useState } from "react";
+import { Platform, View } from "react-native";
+import { LiquidGlassSurface } from "../../liquid-glass/LiquidGlassSurface";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";`,
+        "WorkflowRunRouteScreen imports",
+      );
+      out = replaceOnce(
+        out,
+        `          <View className="gap-1">
+            <TextInput
+              autoFocus`,
+        `          <View className="gap-1">
+            <WorkflowReasonInput
+              autoFocus`,
+        "WorkflowRunRouteScreen reason input glass",
+      );
+      return (
+        out +
+        `
+function WorkflowReasonInput(props: ComponentProps<typeof TextInput>) {
+  const { themeAppearance } = useAppearancePreferences();
+  if (Platform.OS !== "android") return <TextInput {...props} />;
+  return (
+    <LiquidGlassSurface look="input" dark={themeAppearance === "dark"} cornerRadius={16}>
+      <TextInput {...props} className="border-0 bg-transparent" />
+    </LiquidGlassSurface>
+  );
+}
+`
+      );
+    },
+  );
+}
+
+if (fs.existsSync(path.join(MOBILE_DIR, "src/features/threads/FeedbackRequestCard.tsx"))) {
+  patchFile(
+    "src/features/threads/FeedbackRequestCard.tsx",
+    "feedback-request-card-glass",
+    (src) => {
+      let out = replaceOnce(
+        src,
+        `import { useRef, useState } from "react";
+import { Pressable, View, type ColorValue } from "react-native";`,
+        `${MARKER}
+import { type ReactNode, useRef, useState } from "react";
+import { Platform, Pressable, View, type ColorValue } from "react-native";
+import { LiquidGlassSurface } from "../../liquid-glass/LiquidGlassSurface";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";`,
+        "FeedbackRequestCard imports",
+      );
+      out = replaceOnce(
+        out,
+        `  return (
+    <View className="mb-3 gap-3 rounded-[20px] border border-border bg-card-alt p-4">`,
+        `  return (
+    <PendingFeedbackGlassCard>`,
+        "FeedbackRequestCard open glass card",
+      );
+      out = replaceOnce(
+        out,
+        `      <Button
+        label={gt("Don't send")}
+        tone="text"
+        disabled={submitting || !canAnswer}
+        onPress={() => void send("decline")}
+      />
+    </View>
+  );`,
+        `      <Button
+        label={gt("Don't send")}
+        tone="text"
+        disabled={submitting || !canAnswer}
+        onPress={() => void send("decline")}
+      />
+    </PendingFeedbackGlassCard>
+  );`,
+        "FeedbackRequestCard close glass card",
+      );
+      return (
+        out +
+        `
+function PendingFeedbackGlassCard(props: { readonly children: ReactNode }) {
+  const { themeAppearance } = useAppearancePreferences();
+  if (Platform.OS === "android") {
+    return (
+      <LiquidGlassSurface
+        look="card"
+        dark={themeAppearance === "dark"}
+        cornerRadius={20}
+        className="mb-3 gap-3 p-4"
+      >
+        {props.children}
+      </LiquidGlassSurface>
+    );
+  }
+  return (
+    <View className="mb-3 gap-3 rounded-[20px] border border-border bg-card-alt p-4">
+      {props.children}
+    </View>
+  );
+}
+`
+      );
+    },
+  );
+}
 
 for (const [file, mock] of [
   ["components/ui/AppBar.android.test.tsx", 'vi.mock("../../liquid-glass/LiquidGlassHeader", () => ({ GLASS_HEADER_CONTENT_PADDING: 14, LiquidGlassHeader: () => null }));'],

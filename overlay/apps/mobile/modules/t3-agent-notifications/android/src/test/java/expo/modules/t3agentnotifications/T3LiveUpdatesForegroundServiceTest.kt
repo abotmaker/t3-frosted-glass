@@ -128,4 +128,16 @@ class T3LiveUpdatesForegroundServiceTest : AgentNotificationsFixture() {
     assertTrue(manager.activeNotifications.none { it.id == 73001 })
     serviceController.destroy()
   }
+
+  @Test
+  fun localBridgeRejectsMismatchedUserIdentity() {
+    lifecycle.currentState = Lifecycle.State.CREATED
+    val wrongUser = localPayload(active = true, phase = "running", status = "Working") +
+      ("user_id" to "other-user")
+
+    AgentNotifications.receiveLocal(context, wrongUser)
+
+    assertEquals(null, shadowOf(context).nextStartedService)
+    assertTrue(manager.activeNotifications.none { it.id == 73001 })
+  }
 }

@@ -39,6 +39,9 @@ class T3LiquidGlassDockModule : Module() {
       Prop("tabs") { view: T3LiquidGlassDockView, value: List<String> ->
         view.setTabs(value)
       }
+      Prop("tabTitles") { view: T3LiquidGlassDockView, value: Map<String, String> ->
+        view.setTabTitles(value)
+      }
       Prop("selectedTab") { view: T3LiquidGlassDockView, value: String ->
         view.setSelectedTab(value)
       }
@@ -99,6 +102,7 @@ class T3LiquidGlassDockView(
   private val iconTintCache = mutableMapOf<String, Int>()
 
   private var tabs: List<String> = listOf("threads", "pullRequests", "issues", "usage", "settings")
+  private var tabTitles: Map<String, String> = emptyMap()
   private var selectedTab: String = "threads"
   private var dark: Boolean = true
   private var floating: Boolean = true
@@ -134,6 +138,12 @@ class T3LiquidGlassDockView(
     recomputeLayout()
     val idx = selectedIndex().coerceAtLeast(0)
     motion.snapTo(idx)
+    invalidate()
+  }
+
+  fun setTabTitles(nextTitles: Map<String, String>) {
+    if (tabTitles == nextTitles) return
+    tabTitles = nextTitles
     invalidate()
   }
 
@@ -382,16 +392,18 @@ class T3LiquidGlassDockView(
       "threads" -> R.drawable.glass_tab_chats
       "pullRequests" -> R.drawable.glass_tab_pull_requests
       "issues" -> R.drawable.glass_tab_issues
+      "workflows" -> R.drawable.glass_tab_workflows
       "usage" -> R.drawable.glass_tab_usage
       else -> R.drawable.glass_tab_settings
     }
     ContextCompat.getDrawable(context, resId)?.mutate()
   }
 
-  private fun tabTitle(tab: String): String = when (tab) {
+  private fun tabTitle(tab: String): String = tabTitles[tab] ?: when (tab) {
     "threads" -> "Chats"
     "pullRequests" -> "Pulls"
     "issues" -> "Issues"
+    "workflows" -> "Workflows"
     "usage" -> "Usage"
     else -> "Settings"
   }
