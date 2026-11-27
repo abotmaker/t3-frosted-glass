@@ -211,14 +211,14 @@ import "../global.css";`,
     "App.tsx themeVariables",
   );
 
-  out = replaceOnce(
+  out = replaceRegexOnce(
     out,
-    `<GestureHandlerRootView className="flex-1">`,
-    `<GestureHandlerRootView className="flex-1">
+    /(<GestureHandlerRootView[\s\S]*?>)(\n\s*<KeyboardProvider\b)/,
+    `$1
         <LiquidGlassBackdrop
           dark={themeAppearance === "dark"}
           accentColor={themeVariables["--color-primary"]}
-        >`,
+        >$2`,
     "App.tsx open LiquidGlassBackdrop",
   );
 
@@ -2209,11 +2209,14 @@ import { GlassFloatingHeaderInsetContext } from "../../liquid-glass/GlassFloatin
   const store = useContext(ThreadScreenContext)!;
   const content = useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (content === null) return null;
-  const body = "props" in content ? <ThreadDetailScreen {...content.props} /> : content.fallback;
+  const screenProps = "props" in content ? content.props : null;
+  const fallback = "fallback" in content ? content.fallback : null;
   return (
     <>
-      {"props" in content ? content.props.header : content.header}
-      <ScreenContent surface="canvas">{body}</ScreenContent>
+      {content.header}
+      <ScreenContent surface="canvas">
+        {screenProps === null ? fallback : <ThreadDetailScreen {...screenProps} />}
+      </ScreenContent>
     </>
   );
 }`,
@@ -2222,9 +2225,10 @@ import { GlassFloatingHeaderInsetContext } from "../../liquid-glass/GlassFloatin
   const content = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const toolbar = useToolbarLayout();
   if (content === null) return null;
-  const header = "props" in content ? content.props.header : content.header;
-  const body = "props" in content ? <ThreadDetailScreen {...content.props} /> : content.fallback;
-  if (Platform.OS === "android" && header) {
+  const screenProps = "props" in content ? content.props : null;
+  const fallback = "fallback" in content ? content.fallback : null;
+  const body = screenProps === null ? fallback : <ThreadDetailScreen {...screenProps} />;
+  if (Platform.OS === "android" && content.header) {
     const floatingInset = toolbar.paddingTop + toolbar.height + toolbar.paddingBottom;
     return (
       <View style={{ flex: 1 }}>
@@ -2235,14 +2239,14 @@ import { GlassFloatingHeaderInsetContext } from "../../liquid-glass/GlassFloatin
           pointerEvents="box-none"
           style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20 }}
         >
-          {header}
+          {content.header}
         </View>
       </View>
     );
   }
   return (
     <>
-      {header}
+      {content.header}
       <ScreenContent surface="canvas">{body}</ScreenContent>
     </>
   );
@@ -3426,10 +3430,10 @@ if (fs.existsSync(path.join(MOBILE_DIR, "src/features/workflows/WorkflowRunRoute
       let out = replaceOnce(
         src,
         `import { useRef, useState } from "react";
-import { View } from "react-native";`,
+import { Pressable, View } from "react-native";`,
         `${MARKER}
 import { type ComponentProps, useRef, useState } from "react";
-import { Platform, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 import { LiquidGlassSurface } from "../../liquid-glass/LiquidGlassSurface";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";`,
         "WorkflowRunRouteScreen imports",
@@ -3460,6 +3464,100 @@ function WorkflowReasonInput(props: ComponentProps<typeof TextInput>) {
       );
     },
   );
+}
+
+if (fs.existsSync(path.join(MOBILE_DIR, "src/features/workflows/WorkflowRunsAbout.tsx"))) {
+  patchFile("src/features/workflows/WorkflowRunsAbout.tsx", "workflow-runs-about-glass", (src) => {
+    let out = replaceOnce(
+      src,
+      `import { Pressable, View } from "react-native";`,
+      `${MARKER}
+import type { ReactNode } from "react";
+import { Platform, Pressable, View } from "react-native";
+import { LiquidGlassSurface } from "../../liquid-glass/LiquidGlassSurface";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";`,
+      "WorkflowRunsAbout imports",
+    );
+    out = replaceOnce(
+      out,
+      `          <Pressable
+            key={node.run.runId}
+            accessibilityRole="button"
+            accessibilityLabel={\`\${node.run.title}, \${state.word}\`}
+            onPress={() =>
+              navigation.dispatch(
+                StackActions.push("WorkflowRun", {
+                  environmentId: props.environmentId,
+                  runId: node.run.runId,
+                }),
+              )
+            }
+            className="flex-row items-center gap-2 rounded-2xl bg-grouped-card p-3 active:opacity-70"
+          >`,
+      `          <WorkflowRunsAboutCard
+            key={node.run.runId}
+            accessibilityLabel={\`\${node.run.title}, \${state.word}\`}
+            onPress={() =>
+              navigation.dispatch(
+                StackActions.push("WorkflowRun", {
+                  environmentId: props.environmentId,
+                  runId: node.run.runId,
+                }),
+              )
+            }
+          >`,
+      "WorkflowRunsAbout open glass card",
+    );
+    out = replaceOnce(
+      out,
+      `            <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-muted" />
+          </Pressable>`,
+      `            <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-muted" />
+          </WorkflowRunsAboutCard>`,
+      "WorkflowRunsAbout close glass card",
+    );
+    return (
+      out +
+      `
+function WorkflowRunsAboutCard(props: {
+  readonly accessibilityLabel: string;
+  readonly onPress: () => void;
+  readonly children: ReactNode;
+}) {
+  const { themeAppearance } = useAppearancePreferences();
+  if (Platform.OS === "android") {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={props.accessibilityLabel}
+        onPress={props.onPress}
+        className="active:opacity-70"
+      >
+        <LiquidGlassSurface
+          look="card"
+          dark={themeAppearance === "dark"}
+          cornerRadius={16}
+          className="flex-row items-center gap-2 p-3"
+        >
+          {props.children}
+        </LiquidGlassSurface>
+      </Pressable>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={props.accessibilityLabel}
+      onPress={props.onPress}
+      className="flex-row items-center gap-2 rounded-2xl bg-grouped-card p-3 active:opacity-70"
+    >
+      {props.children}
+    </Pressable>
+  );
+}
+`
+    );
+  });
 }
 
 if (fs.existsSync(path.join(MOBILE_DIR, "src/features/threads/FeedbackRequestCard.tsx"))) {
